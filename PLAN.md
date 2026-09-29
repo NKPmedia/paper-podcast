@@ -18,7 +18,7 @@ Status: **milestone 1 (core pipeline, CLI + Docker) implemented** — see README
 | Claude runtime | Claude Agent SDK for Python (bundles the Claude Code CLI) |
 | Language | German |
 | Input | Free-text topic description (may mention papers, authors, arXiv IDs, URLs) |
-| Research | Always runs first; depth `quick` / `medium` (default) / `deep` per request |
+| Research | Always runs first; depth `quick` / `medium` (default) / `deep` per request. Parallel Haiku scouts return a ranked shortlist, Opus picks papers, our code downloads the full texts, and Opus reads all of them |
 | Length | Per request: `kurz` (~5 min), `mittel` (~12 min), `lang` (~25 min) |
 | Review | Fully automatic — no manual script approval step |
 | TTS | Free + online: **Edge TTS** by default; **Gemini TTS** (free tier) if a key is set, falling back to Edge when the quota runs out |
@@ -103,15 +103,71 @@ episode.mp3       final audio (ID3 tags + chapters + cover)
 log.jsonl         stage timings, Claude cost/turns, errors
 ```
 
-### Stage 1 — Research (Claude Agent SDK)
-- Tools: `WebSearch`, `WebFetch`, `Read`, `Write`, `Skill` only. No `Bash`, so untrusted web
-  content can't lead to command execution. `cwd` = job directory.
-- The prompt is assembled from the `research` block plus the topic plus depth settings
-  (`quick` ≈ 3 searches, `medium` ≈ 5–10, `deep` ≈ 15+ with follow-up of cited work).
-- Tasks: identify the core paper(s) or angle; read the abstract and key sections; find
-  context, prior work, follow-ups, critiques and real-world relevance; note concrete
-  numbers.
-- Output: `research.md` + `sources.json`, the latter via structured output (JSON schema).
+### Stage 1 — Research: scouts → selection → full-text reading
+
+Modelled on Anthropic's multi-agent research system (strong lead model, cheaper
+parallel workers, start wide then narrow) and PaperQA2 (cheap models search, the
+strong model answers). Our Python code orchestrates the steps, not an LLM, so they
+are deterministic, testable and resumable.
+
+**1a. Scouts** (default model **Haiku**; selectable)
+- Each scout is a separate Agent SDK call. They run in parallel, using `WebSearch`,
+  `WebFetch` and the `paper-research` skill (arXiv, Semantic Scholar, OpenAlex).
+- The number of scouts scales with research depth:
+
+  | Depth | Scouts | Angles |
+  |---|---|---|
+  | `quick` | 1 | broad |
+  | `medium` | 3 | background and prior work · method and results · critique, follow-ups and applications |
+  | `deep` | 5 | the above plus citation traversal (who cites the core paper, what it builds on) and recent developments |
+
+- Each scout searches broadly first and then narrows down.
+- It **ranks rather than filters**. It returns 10–20 candidates as structured
+  output: arXiv ID or DOI, title, authors, year, URL, a relevance score from 0 to
+  10, a one-line reason and a verbatim quote from the abstract.
+- Scouts take metadata (authors, year) from the APIs, never from memory.
+- Our code merges the candidates, deduplicates them by arXiv ID, DOI or normalized
+  title, and writes `candidates.json`, a ranked shortlist of about 20–40 entries
+  that you can inspect.
+
+**1b. Selection** (main model, default **Opus**)
+- The main agent sees the shortlist and picks the papers to read (`quick` about 3,
+  `medium` about 6, `deep` about 10). It may pick from anywhere in the list, not
+  just the top.
+- Output: the selected IDs, each with a reason.
+
+**1c. Full-text download** (our code, no LLM)
+- For each selected paper, fetch the arXiv HTML version (`arxiv.org/html/<id>`,
+  which keeps structure and maths) and convert it to Markdown.
+- Fallback: the PDF, converted to text with PyMuPDF. Other URLs: the open-access
+  PDF from Semantic Scholar or OpenAlex.
+- Saved as `papers/<id>.md` along with `papers/index.json`; failures are recorded
+  there.
+
+**1d. Deep reading and notes** (main model, same session as 1b, resumed)
+- The main agent `Read`s **every** downloaded paper in full from the job
+  directory. These are local files, so there is no WebFetch summarization and the
+  text arrives unaltered.
+- It may also use `WebSearch` and `WebFetch` for anything still missing.
+- Claude Code compacts the context on its own if it grows large. Very long papers
+  are read in sections.
+- Output: `research.md` with concrete numbers and source tags, plus `sources.json`
+  (structured output), as before.
+
+**Configuration** (settings, later also editable in the web UI):
+- `RESEARCH_SCOUT_MODEL=haiku`, `RESEARCH_MAIN_MODEL=opus`, `SCRIPT_MODEL=opus`.
+- Scout count, candidates per scout and papers to read, set per depth.
+- `max_turns` per role.
+
+**Logging:** `log.jsonl` records cost, turns and model for each call and role.
+
+**Guardrails:**
+- No `Bash`. The web is reached only through `WebSearch` and `WebFetch`; papers
+  are downloaded by our code.
+- Downloads are limited in size (for example 20 MB per PDF) and allowed only over
+  `https`.
+- Scouts that fail are logged, and research continues as long as at least one
+  scout succeeds.
 
 ### Stage 2 — Script (Claude Agent SDK)
 - Input: `research.md` and the prompt blocks `personas`, `style`, `structure`,
