@@ -1,6 +1,6 @@
 ---
 name: handout-plots
-description: Style guide for matplotlib figures in the podcast handout PDF, covering which plot type fits which content, layout for A4, and honest labelling. Use when writing plotting code for the handout.
+description: Stilregeln für matplotlib-Abbildungen im Handout-PDF: passender Diagrammtyp, Layout für A4, ehrliche Beschriftung. Nutzen beim Schreiben von Plot-Code.
 ---
 
 # Handout plots (matplotlib)

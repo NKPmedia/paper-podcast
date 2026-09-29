@@ -1,6 +1,6 @@
 ---
 name: tts-friendly-text
-description: Rules for writing German text so a speech synthesizer (Edge TTS, Gemini TTS) pronounces it correctly, covering numbers, units, formulas, abbreviations and English terms. Use when writing any text that will be read aloud.
+description: Regeln, damit die Sprachsynthese deutschen Text richtig ausspricht: Zahlen, Einheiten, Abkürzungen, englische Begriffe; keine Formeln vorlesen. Nutzen für jeden Text, der vorgelesen wird.
 ---
 
 # TTS-friendly German text

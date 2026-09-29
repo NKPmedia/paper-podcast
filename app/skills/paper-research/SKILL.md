@@ -1,6 +1,6 @@
 ---
 name: paper-research
-description: Find and read scientific papers for a podcast episode, using the arXiv, Semantic Scholar and OpenAlex APIs via WebFetch, and judge source quality. Use when researching a paper or a scientific topic.
+description: Wissenschaftliche Paper finden und bewerten – über die APIs von arXiv, Semantic Scholar und OpenAlex (per WebFetch). Nutzen beim Recherchieren eines Papers oder Forschungsthemas.
 ---
 
 # Paper research

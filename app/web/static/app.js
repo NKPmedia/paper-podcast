@@ -33,6 +33,18 @@
     return response.json();
   }
 
+  // Elapsed time of a running job.
+  const elapsed = document.querySelector("[data-elapsed]");
+  if (elapsed) {
+    const start = new Date(elapsed.dataset.elapsed).getTime();
+    const tick = () => {
+      const seconds = Math.max(0, Math.floor((Date.now() - start) / 1000));
+      elapsed.textContent = `läuft seit ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")} min`;
+    };
+    tick();
+    setInterval(tick, 1000);
+  }
+
   // Episode page: poll while the job is active, reload when it finishes.
   const episode = document.querySelector("[data-episode-status]");
   if (episode && ["queued", "running"].includes(episode.dataset.status)) {

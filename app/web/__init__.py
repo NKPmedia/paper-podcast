@@ -23,6 +23,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.assets import FILES as ASSET_FILES
 from app.assets import MAX_UPLOAD_BYTES, AssetError, save_cover, save_jingle
 from app.auth import LoginThrottle, load_or_create_secret, verify_password
+from app.claude import claude_auth_configured
 from app.config import Settings, get_settings
 from app.db import JobStore
 from app.jobs import ContextFactory, JobError, JobService, Worker
@@ -45,7 +46,20 @@ STATUS_LABELS = {
     "cancelled": "Abgebrochen",
 }
 LENGTH_LABELS = {"kurz": "Kurz (~5 min)", "mittel": "Mittel (~12 min)", "lang": "Lang (~25 min)"}
-DEPTH_LABELS = {"quick": "Schnell", "medium": "Mittel", "deep": "Gründlich"}
+DEPTH_LABELS = {"quick": "Schnell", "medium": "Normal", "deep": "Gründlich"}
+DEPTH_OPTIONS = {
+    "quick": "Schnell – 1 Scout, ca. 3 Paper",
+    "medium": "Normal – 3 Scouts, ca. 6 Paper",
+    "deep": "Gründlich – 5 Scouts, ca. 10 Paper (dauert länger, verbraucht mehr Kontingent)",
+}
+BLOCK_TITLES = {
+    "personas": "Sprecher", "style": "Stil", "structure": "Aufbau", "research": "Recherche",
+    "script_rules": "Sprechregeln", "handout": "Handout", "system": "Grundregeln",
+}
+ANGLE_LABELS = {
+    "overview": "Überblick", "background": "Hintergrund", "core": "Kernergebnisse", "critique": "Kritik",
+    "citations": "Zitationen", "recent": "Aktuelles",
+}
 
 _markdown = MarkdownIt("commonmark", {"html": False}).enable("table")
 
@@ -133,7 +147,11 @@ def create_app(
             return ""
         return f"{seconds // 60}:{seconds % 60:02d}"
 
-    templates.env.filters.update(time=fmt_time, duration=fmt_duration, markdown=_markdown.render, safe_url=_safe_url)
+    def fmt_money(value: float | None) -> str:
+        return f"{value:.2f}".replace(".", ",") + " $" if value else ""
+
+    templates.env.filters.update(time=fmt_time, duration=fmt_duration, markdown=_markdown.render, safe_url=_safe_url,
+                                 money=fmt_money)
     templates.env.globals.update(
         status_labels=STATUS_LABELS, stage_labels=STAGE_LABELS, podcast_name=settings.podcast_name
     )
@@ -175,7 +193,13 @@ def create_app(
 
     @app.exception_handler(BadCsrf)
     async def _bad_csrf(request: Request, exc: BadCsrf):
-        return Response("Ungültiges Formular-Token. Bitte Seite neu laden.", status_code=400)
+        if settings.cookie_secure and request.url.scheme == "http":
+            message = ("Anmeldung ist nur über HTTPS möglich, weil das Sitzungs-Cookie als „Secure“ markiert ist. "
+                       "Öffne die Seite über deinen Reverse-Proxy (https://…) oder setze für einen kurzen Test "
+                       "ohne Proxy COOKIE_SECURE=false in der .env und starte neu.")
+        else:
+            message = "Das Formular ist abgelaufen. Bitte die Seite neu laden und noch einmal absenden."
+        return render(request, "error.html", 400, message=message)
 
     # --- auth ---------------------------------------------------------------------
 
@@ -183,20 +207,25 @@ def create_app(
     async def healthz():
         return {"ok": True}
 
+    def insecure_http(request: Request) -> bool:
+        return settings.cookie_secure and request.url.scheme == "http"
+
     @app.get("/login")
     async def login_form(request: Request, next: str = "/"):
-        return render(request, "login.html", next=next)
+        return render(request, "login.html", next=next, insecure_http=insecure_http(request))
 
     @app.post("/login")
     async def login(request: Request, password: str = Form(...), csrf: str = Form(""), next: str = Form("/")):
         check_csrf(request, csrf)
         client = request.client.host if request.client else "unknown"
         if throttle.blocked(client):
-            return render(request, "login.html", 429, next=next, error="Zu viele Fehlversuche. Bitte später erneut.")
+            return render(request, "login.html", 429, next=next, insecure_http=insecure_http(request),
+                          error="Zu viele Fehlversuche. Bitte in 15 Minuten erneut versuchen.")
         if not verify_password(password, settings.web_password_hash):
             throttle.fail(client)
             await asyncio.sleep(1)
-            return render(request, "login.html", 401, next=next, error="Falsches Passwort.")
+            return render(request, "login.html", 401, next=next, insecure_http=insecure_http(request),
+                          error="Falsches Passwort.")
         throttle.reset(client)
         request.session.clear()
         request.session["user"] = "owner"
@@ -230,9 +259,11 @@ def create_app(
         return render(
             request, "index.html",
             jobs=store.list(100),
-            lengths=LENGTH_LABELS, depths=DEPTH_LABELS,
-            blocks=BLOCK_DESCRIPTIONS, prompt_names=prompts.names(),
-            skills=skills.all(),
+            lengths=LENGTH_LABELS, depths=DEPTH_OPTIONS,
+            blocks=BLOCK_DESCRIPTIONS, block_titles=BLOCK_TITLES,
+            prompt_names=[n for n in BLOCK_TITLES if n in prompts.names()],
+            skills=skills.all(), stage_config=skills.stage_config(),
+            claude_ok=claude_auth_configured(),
         )
 
     @app.get("/jobs.json")
@@ -267,7 +298,9 @@ def create_app(
         except (ValueError, KeyError, TemplateSyntaxError, UndefinedError) as exc:
             flash(request, f"Konnte die Episode nicht anlegen: {exc}", "error")
             return redirect("/")
-        flash(request, "Episode wurde in die Warteschlange gestellt.")
+        waiting = sum(1 for j in store.list(200) if j.active and j.id != job.id)
+        flash(request, f"Episode angelegt – {waiting} Job(s) sind vor ihr in der Warteschlange." if waiting
+              else "Episode angelegt – sie startet jetzt.")
         return redirect(f"/episodes/{job.id}")
 
     def load_job(job_id: str):
@@ -296,7 +329,8 @@ def create_app(
             request, "episode.html",
             job=job,
             options=request_data.get("request", {}).get("options", {}),
-            lengths=LENGTH_LABELS, depths=DEPTH_LABELS,
+            lengths=LENGTH_LABELS, depths=DEPTH_LABELS, angle_labels=ANGLE_LABELS,
+            telegram_enabled=bool(settings.telegram_bot_token and settings.telegram_chat_ids),
             stages=[(s, (job_dir / STAGE_ARTIFACTS[s]).exists()) for s in job_stages],
             has_handout=(job_dir / "handout.pdf").exists(),
             episode=_read_json(job_dir / "episode.json"),

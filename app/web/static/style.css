@@ -134,3 +134,17 @@ nav.files a.active { border-color: var(--accent); font-weight: 600; }
 .asset audio { max-width: 420px; display: block; margin: 6px 0; }
 .cover-preview { width: 120px; height: 120px; border-radius: 8px; display: block; margin: 6px 0; object-fit: cover; }
 .asset form.row { gap: 8px; align-items: center; }
+.skill-option { display: flex; align-items: flex-start; margin: 6px 0; }
+.skill-option input { margin-top: 4px; }
+input[type="file"] { max-width: 100%; }
+ol.stages li.failed { color: var(--danger); border-color: var(--danger); font-weight: 600; }
+ol.stages li.failed::before { content: "✗ "; }
+.downloads a { white-space: nowrap; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+details > summary { cursor: pointer; }
+@media (max-width: 600px) {
+  table.skills td .muted { display: none; }
+  table.skills th, table.skills td { padding: 6px 4px; }
+}
+.asset form.row { flex-wrap: wrap; }
+.asset input[type="file"] { flex: 1 1 180px; min-width: 0; width: 100%; }

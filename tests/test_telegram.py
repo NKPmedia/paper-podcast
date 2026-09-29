@@ -84,7 +84,8 @@ async def test_new_episode_flow_until_audio(env):
 
     await env.bot.handle_callback(CHAT, draft["id"], "cb1", "d:len:kurz")
     await env.bot.handle_callback(CHAT, draft["id"], "cb2", "d:dep:quick")
-    assert "✓ Kurz" in str(env.m.edits[-1]["keyboard"]) and "✓ Schnell" in str(env.m.edits[-1]["keyboard"])
+    assert "✓ Kurz · 5 min" in str(env.m.edits[-1]["keyboard"]) and "✓ 🔎 Schnell" in str(env.m.edits[-1]["keyboard"])
+    assert "Recherche: Schnell (ca. 3 Paper)" in env.m.edits[-1]["text"]
     await env.bot.handle_callback(CHAT, draft["id"], "cb3", "d:go")
 
     (job,) = env.store.list()
@@ -101,7 +102,7 @@ async def test_new_episode_flow_until_audio(env):
     # progress edits went to the draft message, no duplicate announcement was sent
     progress = [e for e in env.m.edits if e["id"] == draft["id"]]
     assert any("▶ <b>Recherche</b>" in e["text"] for e in progress)
-    assert any("✓ Recherche · ✓ Skript · ▶ <b>Sprache</b>" in e["text"] for e in progress)
+    assert any("✓ Recherche · ✓ Skript · ▶ <b>Sprachausgabe</b>" in e["text"] for e in progress)
     assert progress[-1]["text"].startswith("✅ <b>Testepisode</b>")
     assert "https://pod.example/episodes/" in progress[-1]["text"]
 
@@ -185,10 +186,21 @@ async def test_list_current_status_cancel(env):
     await env.bot.handle_command(CHAT, "status", [])
     assert "⏳ Zweite wartet – Wartet" in env.m.sent[-1]["text"]
     await env.bot.handle_command(CHAT, "liste", [])
-    assert "1. Testepisode (0:" in env.m.sent[-1]["text"]
+    listing = env.m.sent[-1]
+    assert "1. Testepisode (0:" in listing["text"]
+    first_done = env.store.list()[1]
+    assert buttons(listing) == [f"g:{first_done.id}"]
+    await env.bot.handle_callback(CHAT, listing["id"], "cb", f"g:{first_done.id}")
+    assert len(env.m.audio) == 1
+    env.m.audio.clear()
+
+    # While a job is active, /aktuell shows status and offers the latest episode instead of re-sending it
     await env.bot.handle_command(CHAT, "current", [])  # English alias
     texts = [s["text"] for s in env.m.sent]
     assert any("Zweite wartet" in t and "In der Warteschlange" in t for t in texts)
+    offer = env.m.sent[-1]
+    assert "Neueste fertige Episode" in offer["text"] and buttons(offer) == ["l:"] and env.m.audio == []
+    await env.bot.handle_callback(CHAT, offer["id"], "cb", "l:")
     assert len(env.m.audio) == 1 and env.m.audio[0]["title"] == "Testepisode"
 
 
@@ -291,3 +303,26 @@ async def test_handout_toggle_and_delivery(env):
     assert doc["path"].name == "handout.pdf" and doc["filename"].startswith("Handout - ")
     await env.bot.handle_command(CHAT, "folge", ["1"])
     assert env.m.documents[-1]["file_id"] == "DOC1" and env.m.documents[-1]["path"] is None
+
+
+async def test_cancel_needs_confirmation(env):
+    env.service.submit(EpisodeRequest(topic="Lange Recherche"))
+    job = env.store.claim_next()
+    env.worker._current = (job.id, None)  # pretend it is running
+
+    await env.bot.handle_callback(CHAT, 555, "cb", f"c:{job.id}")
+    ask = env.m.edits[-1]
+    assert "Wirklich abbrechen?" in ask["text"] and buttons(ask) == [f"C:{job.id}", f"k:{job.id}"]
+    await env.bot.handle_callback(CHAT, 555, "cb", f"k:{job.id}")
+    assert "Wirklich" not in env.m.edits[-1]["text"] and f"c:{job.id}" in buttons(env.m.edits[-1])
+
+    cancelled = []
+
+    async def fake_cancel(job_id):
+        cancelled.append(job_id)
+
+    env.service.cancel = fake_cancel
+    await env.bot.handle_command(CHAT, "abbrechen", [])
+    assert buttons(env.m.sent[-1]) == [f"C:{job.id}", f"k:{job.id}"] and cancelled == []
+    await env.bot.handle_callback(CHAT, env.m.sent[-1]["id"], "cb", f"C:{job.id}")
+    assert cancelled == [job.id]

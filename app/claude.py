@@ -22,6 +22,29 @@ class ClaudeError(RuntimeError):
     pass
 
 
+AUTH_HINTS = ("401", "403", "authentication", "unauthorized", "invalid api key", "oauth", "/login", "not logged in")
+
+
+def claude_auth_configured() -> bool:
+    """True if Claude Code has credentials: a token in the environment or a login in its config dir."""
+    if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY"):
+        return True
+    config_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude"))
+    return (config_dir / ".credentials.json").exists()
+
+
+def explain(error: str) -> str:
+    """Prefix a raw Claude error with a German explanation where we recognise the cause."""
+    lower = error.lower()
+    if any(hint in lower for hint in AUTH_HINTS):
+        return ("Claude konnte sich nicht anmelden. Prüfe CLAUDE_CODE_OAUTH_TOKEN in der .env "
+                "(neu erzeugen mit `claude setup-token`) und starte den Container neu. Details: " + error)
+    if ("rate" in lower and "limit" in lower) or "429" in lower or "usage limit" in lower:
+        return ("Das Claude-Nutzungslimit ist erreicht. Später mit „Fortsetzen“ weitermachen; "
+                "fertige Schritte bleiben erhalten. Details: " + error)
+    return error
+
+
 @dataclass
 class ClaudeCall:
     prompt: str
@@ -85,25 +108,30 @@ class AgentSDKRunner:
 
         result: ResultMessage | None = None
         skills_used: list[str] = []
-        async for message in query(prompt=call.prompt, options=options):
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, ToolUseBlock):
-                        log.info("claude tool: %s %s", block.name, _short(block.input))
-                        if block.name == "Skill":
-                            skills_used.append(str(block.input.get("skill", "")))
-            elif isinstance(message, ResultMessage):
-                result = message
+        try:
+            async for message in query(prompt=call.prompt, options=options):
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, ToolUseBlock):
+                            log.info("claude tool: %s %s", block.name, _short(block.input))
+                            if block.name == "Skill":
+                                skills_used.append(str(block.input.get("skill", "")))
+                elif isinstance(message, ResultMessage):
+                    result = message
+        except ClaudeError:
+            raise
+        except Exception as exc:  # CLI crashed, could not start, auth failed before the first turn …
+            raise ClaudeError(explain(f"{type(exc).__name__}: {exc}")) from exc
 
         if result is None:
-            raise ClaudeError("Claude returned no result")
+            raise ClaudeError("Claude hat kein Ergebnis geliefert")
         if result.is_error:
-            raise ClaudeError(
+            raise ClaudeError(explain(
                 f"Claude failed ({result.subtype}, stop={result.terminal_reason}): "
                 f"{result.errors or result.result}"
-            )
+            ))
         if call.output_schema and result.structured_output is None:
-            raise ClaudeError("Claude returned no structured output")
+            raise ClaudeError("Claude hat keine strukturierte Antwort geliefert")
         return ClaudeResult(
             structured=result.structured_output,
             text=result.result or "",

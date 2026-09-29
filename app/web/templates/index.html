@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block content %}
+{% if not claude_ok %}
+<div class="flash error">Claude ist nicht eingerichtet: <code>CLAUDE_CODE_OAUTH_TOKEN</code> fehlt in der <code>.env</code>. Erzeuge ihn auf deinem Rechner mit <code>claude setup-token</code> und starte den Container neu. Bis dahin schlagen Episoden fehl.</div>
+{% endif %}
 <section class="card">
   <h1>Neue Episode</h1>
   <form method="post" action="/episodes">
@@ -11,25 +14,28 @@
       <label>Länge
         <select name="length">{% for value, label in lengths.items() %}<option value="{{ value }}" {% if value == "mittel" %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
       </label>
-      <label>Recherche
+      <label>Recherche-Tiefe
         <select name="depth">{% for value, label in depths.items() %}<option value="{{ value }}" {% if value == "medium" %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
       </label>
     </div>
-    <label class="check"><input type="checkbox" name="handout"> Handout als PDF (mit Abbildungen und Formeln)</label>
+    <label class="check"><input type="checkbox" name="handout"> Handout als PDF – mit Abbildungen und den Formeln, die im Gespräch nur in Worten erklärt werden</label>
     <label>Zusätzliche Wünsche <span class="hint">optional</span>
-      <input name="extra" placeholder="z.B. Fokus auf praktische Anwendungen">
+      <input name="extra" placeholder="z.B. Fokus auf praktische Anwendungen, oder: für Einsteiger erklären">
     </label>
     <details>
-      <summary>Erweitert: Prompt-Blöcke und Skills nur für diese Episode ergänzen</summary>
+      <summary>Erweitert: Prompt nur für diese Episode anpassen</summary>
+      <p class="hint">Text in einem Feld wird an den jeweiligen Prompt-Block angehängt – dauerhaft änderst du die Blöcke unter <a href="/prompts">Prompts</a>.</p>
       {% for name in prompt_names %}
-      <label>{{ name }} <span class="hint">{{ blocks.get(name, "") }}</span>
-        <textarea name="block_{{ name }}" rows="2" placeholder="Wird an den Block „{{ name }}“ angehängt"></textarea>
+      <label>{{ block_titles[name] }} <span class="hint">{{ blocks.get(name, "") }}</span>
+        <textarea name="block_{{ name }}" rows="2"></textarea>
       </label>
       {% endfor %}
       <fieldset>
-        <legend>Zusätzliche Skills</legend>
+        <legend>Zusätzliche Skills für diese Episode</legend>
         {% for skill in skills.values() %}
-        <label class="check"><input type="checkbox" name="extra_skills" value="{{ skill.name }}"> {{ skill.name }}</label>
+        {% set always = [] %}{% for stage, names in stage_config.items() %}{% if skill.name in names %}{% set _ = always.append(stage) %}{% endif %}{% endfor %}
+        <label class="check skill-option"><input type="checkbox" name="extra_skills" value="{{ skill.name }}" {% if always %}disabled{% endif %}>
+          <span><b>{{ skill.name }}</b>{% if always %} <span class="hint">(ist ohnehin aktiv)</span>{% endif %}<br><span class="hint">{{ skill.description }}</span></span></label>
         {% endfor %}
       </fieldset>
     </details>
@@ -39,12 +45,12 @@
 
 <section class="card">
   <h2>Episoden</h2>
-  {% if not jobs %}<p class="muted">Noch keine Episoden.</p>{% endif %}
+  {% if not jobs %}<p class="muted">Noch keine Episoden. Gib oben ein Thema ein – die erste Episode dauert je nach Länge und Recherche-Tiefe etwa 10 bis 40 Minuten.</p>{% endif %}
   <ul class="jobs" data-poll="/jobs.json">
     {% for job in jobs %}
     <li data-job-id="{{ job.id }}">
       <a href="/episodes/{{ job.id }}" class="job-title">{{ job.display_title }}</a>
-      <span class="meta">{{ job.created_at | time }}{% if job.duration_s %} · {{ job.duration_s | duration }}{% endif %}</span>
+      <span class="meta">{{ job.created_at | time }}{% if job.duration_s %} · {{ job.duration_s | duration }} min{% endif %}</span>
       <span class="badge {{ job.status }}" data-field="status">{{ status_labels[job.status] }}{% if job.status == "running" and job.stage %} · {{ stage_labels.get(job.stage, job.stage) }}{% endif %}</span>
     </li>
     {% endfor %}

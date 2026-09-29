@@ -1,6 +1,6 @@
 ---
 name: german-podcast-dialogue
-description: Write natural spoken German dialogue between a curious host and an expert for a science podcast. Use when writing or revising a podcast script.
+description: Natürlichen gesprochenen deutschen Dialog zwischen neugieriger Host und Experte für einen Wissenschafts-Podcast schreiben. Nutzen beim Schreiben oder Überarbeiten eines Skripts.
 ---
 
 # Natural German podcast dialogue

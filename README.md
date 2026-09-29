@@ -67,19 +67,19 @@ The bot uses long polling, so it needs no inbound port or webhook.
 
 | Command | What it does |
 |---|---|
-| any text, or `/neu <Thema>` | Starts a new episode. Buttons for length and research depth, then **▶ Starten**. |
-| `/aktuell` | Live status of running or waiting jobs, then the newest finished episode (audio, chapters, sources). |
-| `/liste`, `/folge <Nr>` | The last 10 episodes; send one of them. |
+| any text, or `/neu <Thema>` | Starts a new episode. Buttons for length, research depth and handout, then **▶ Starten**. |
+| `/aktuell` | Live status of running or waiting jobs. While something is running, you get a **▶ Senden** button for the newest episode instead of the whole episode again. |
+| `/liste` | The last 10 episodes; tap a number to receive one. Episodes that did not finish come with a **🔁** resume button. (`/folge <Nr>` still works.) |
 | `/status` | The queue. |
-| `/abbrechen` | Cancel the running job. |
+| `/abbrechen` | Cancel the running job, after a confirmation. |
 
 **While an episode runs:**
 - The bot edits one status message as the stages advance, e.g.
   ✓ Recherche · ▶ **Skript** · Sprache · Audio.
-- The message has an **✖ Abbrechen** button.
+- The message has an **✖ Abbrechen** button, which asks for confirmation first.
 - When the episode is done, the MP3 arrives as an audio message with title and
   summary, followed by chapters and sources.
-- If a job fails, the message shows the error and a **🔁 Fortsetzen** button.
+- If a job fails, the message names the step that failed and shows a **🔁 Fortsetzen** button, which resumes at that step.
 
 **Episodes started from the web UI** are announced and delivered the same way
 unless `TELEGRAM_NOTIFY_ALL=false`.

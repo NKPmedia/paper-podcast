@@ -30,9 +30,12 @@ Button = tuple[str, str]  # (label, callback data)
 Keyboard = list[list[Button]]
 
 MAX_AUDIO_BYTES = 49 * 1024 * 1024  # Bot API upload limit is 50 MB
-STAGE_LABELS = {"research": "Recherche", "script": "Skript", "handout": "Handout", "tts": "Sprache", "audio": "Audio"}
+STAGE_LABELS = {"research": "Recherche", "script": "Skript", "handout": "Handout", "tts": "Sprachausgabe",
+                "audio": "Audio"}
 LENGTH_LABELS = {"kurz": "Kurz (~5 min)", "mittel": "Mittel (~12 min)", "lang": "Lang (~25 min)"}
-DEPTH_LABELS = {"quick": "Schnell", "medium": "Mittel", "deep": "Gründlich"}
+LENGTH_BUTTONS = {"kurz": "Kurz · 5 min", "mittel": "Mittel · 12 min", "lang": "Lang · 25 min"}
+DEPTH_LABELS = {"quick": "Schnell", "medium": "Normal", "deep": "Gründlich"}
+DEPTH_HINTS = {"quick": "ca. 3 Paper", "medium": "ca. 6 Paper", "deep": "ca. 10 Paper, dauert länger"}
 STATUS_ICONS = {"queued": "⏳", "running": "⚙️", "done": "✅", "failed": "❌", "cancelled": "🚫"}
 STATUS_LABELS = {"queued": "Wartet", "running": "Läuft", "done": "Fertig", "failed": "Fehler", "cancelled": "Abgebrochen"}
 
@@ -42,8 +45,7 @@ HELP = (
     "und Recherche-Tiefe.\n\n"
     "/neu &lt;Thema&gt; – neue Episode\n"
     "/aktuell – laufender Job und neueste Episode\n"
-    "/liste – die letzten Episoden\n"
-    "/folge &lt;Nr&gt; – eine Episode aus der Liste senden\n"
+    "/liste – die letzten Episoden (zum Antippen)\n"
     "/status – Warteschlange\n"
     "/abbrechen – laufenden Job abbrechen"
 )
@@ -155,19 +157,39 @@ class TelegramBot:
         kind, _, rest = data.partition(":")
         if kind == "d":
             await self._draft_callback(chat_id, message_id, callback_id, rest)
-        elif kind in ("r", "c"):
-            try:
-                if kind == "r":
-                    self.service.retry(rest)
-                    await self.messenger.answer_callback(callback_id, "Wird fortgesetzt")
-                    await self._set_status_message(self.store.get(rest), chat_id, message_id)
-                else:
-                    await self.service.cancel(rest)
-                    await self.messenger.answer_callback(callback_id, "Wird abgebrochen")
-            except JobError as exc:
-                await self.messenger.answer_callback(callback_id, str(exc))
-        else:
-            await self.messenger.answer_callback(callback_id)
+            return
+        job = self.store.get(rest) if rest else None
+        try:
+            if kind == "r" and job:
+                self.service.retry(rest)
+                await self.messenger.answer_callback(callback_id, "Wird fortgesetzt")
+                await self._set_status_message(self.store.get(rest), chat_id, message_id)
+            elif kind == "c" and job:  # ask first: a cancelled research run costs time and quota
+                text, _ = self.status_text(job)
+                await self.messenger.edit_text(chat_id, message_id, text + "\n\n<b>Wirklich abbrechen?</b> "
+                                               "Fertige Schritte bleiben erhalten.",
+                                               [[("Ja, abbrechen", f"C:{job.id}"), ("Nein, weiterlaufen", f"k:{job.id}")]])
+                self._last_status_text.pop((chat_id, message_id), None)
+                await self.messenger.answer_callback(callback_id)
+            elif kind == "C" and job:
+                await self.service.cancel(rest)
+                await self.messenger.answer_callback(callback_id, "Wird abgebrochen")
+            elif kind == "k" and job:
+                self._last_status_text.pop((chat_id, message_id), None)
+                await self._edit_status(job, chat_id, message_id)
+                await self.messenger.answer_callback(callback_id)
+            elif kind == "g" and job:
+                await self.messenger.answer_callback(callback_id, "Wird gesendet")
+                await self.send_episode(chat_id, job)
+            elif kind == "l":
+                await self.messenger.answer_callback(callback_id, "Wird gesendet")
+                done = self._done_jobs(1)
+                if done:
+                    await self.send_episode(chat_id, done[0])
+            else:
+                await self.messenger.answer_callback(callback_id, "Nicht mehr verfügbar")
+        except JobError as exc:
+            await self.messenger.answer_callback(callback_id, str(exc))
 
     # --- new episode ------------------------------------------------------------------
 
@@ -177,12 +199,13 @@ class TelegramBot:
 
         text = (
             f"<b>Neue Episode</b>\n{esc(draft.topic)}\n\n"
-            f"Länge: {LENGTH_LABELS[draft.length]}\nRecherche: {DEPTH_LABELS[draft.depth]}\n"
+            f"Länge: {LENGTH_LABELS[draft.length]}\n"
+            f"Recherche: {DEPTH_LABELS[draft.depth]} ({DEPTH_HINTS[draft.depth]})\n"
             f"Handout: {'ja (PDF)' if draft.handout else 'nein'}"
         )
         keyboard = [
-            [(mark(v.capitalize(), draft.length == v), f"d:len:{v}") for v in LENGTH_LABELS],
-            [(mark(DEPTH_LABELS[v], draft.depth == v), f"d:dep:{v}") for v in DEPTH_LABELS],
+            [(mark(LENGTH_BUTTONS[v], draft.length == v), f"d:len:{v}") for v in LENGTH_LABELS],
+            [(mark("🔎 " + DEPTH_LABELS[v], draft.depth == v), f"d:dep:{v}") for v in DEPTH_LABELS],
             [(mark("📄 Handout (PDF)", draft.handout), "d:ho")],
             [("▶ Starten", "d:go"), ("✖ Verwerfen", "d:x")],
         ]
@@ -277,7 +300,9 @@ class TelegramBot:
                     lines.append(f"<i>{esc(job.message)}</i>")
             keyboard = [[("✖ Abbrechen", f"c:{job.id}")]]
         elif job.status == "failed":
-            lines.append(f"Fehler: <code>{esc(job.error[:600])}</code>")
+            lines.append(f"Fehler beim Schritt <b>{STAGE_LABELS.get(job.stage, 'Start')}</b>. "
+                         "„Fortsetzen“ macht dort weiter, fertige Schritte bleiben erhalten.")
+            lines.append(f"<code>{esc(job.error[:400])}</code>")
             keyboard = [[("🔁 Fortsetzen", f"r:{job.id}")]]
         elif job.status == "cancelled":
             lines.append("Abgebrochen.")
@@ -379,26 +404,39 @@ class TelegramBot:
 
     async def cmd_current(self, chat_id: int) -> None:
         active = [j for j in self.store.list(200) if j.active]
+        done = self._done_jobs(1)
         for job in sorted(active, key=lambda j: j.created_at):
             text, keyboard = self.status_text(job)
             message_id = await self.messenger.send_text(chat_id, text, keyboard)
             await self._set_status_message(job, chat_id, message_id)
-        done = self._done_jobs(1)
-        if done:
+        if active and done:  # checking progress should not re-send a whole episode
+            await self.messenger.send_text(
+                chat_id, f"Neueste fertige Episode: <b>{esc(done[0].display_title)}</b>",
+                [[("▶ Senden", "l:")]],
+            )
+        elif done:
             await self.send_episode(chat_id, done[0])
         elif not active:
             await self.messenger.send_text(chat_id, "Noch keine fertige Episode. Schick mir ein Thema!")
 
     async def cmd_list(self, chat_id: int) -> None:
         jobs = self._done_jobs()
-        if not jobs:
-            await self.messenger.send_text(chat_id, "Noch keine fertigen Episoden.")
+        failed = [j for j in self.store.list(50) if j.status in ("failed", "cancelled")][:5]
+        if not jobs and not failed:
+            await self.messenger.send_text(chat_id, "Noch keine fertigen Episoden. Schick mir ein Thema!")
             return
         lines = [
             f"{i}. {esc(j.display_title)} ({fmt_duration(j.duration_s)}, {j.created_at[8:10]}.{j.created_at[5:7]}.)"
             for i, j in enumerate(jobs, start=1)
         ]
-        await self.messenger.send_text(chat_id, "<b>Letzte Episoden</b>\n" + "\n".join(lines) + "\n\nSenden mit /folge &lt;Nr&gt;")
+        keyboard = [[(f"▶ {i}", f"g:{j.id}") for i, j in enumerate(jobs[k:k + 5], start=k + 1)]
+                    for k in range(0, len(jobs), 5)]
+        text = "<b>Letzte Episoden</b>\n" + "\n".join(lines) if jobs else ""
+        if failed:
+            text += "\n\n<b>Nicht fertig geworden</b>\n" + "\n".join(
+                f"{STATUS_ICONS[j.status]} {esc(j.display_title)}" for j in failed)
+            keyboard += [[(f"🔁 {j.display_title[:28]}", f"r:{j.id}")] for j in failed]
+        await self.messenger.send_text(chat_id, text.strip() + "\n\nTippe auf eine Nummer zum Senden.", keyboard)
 
     async def cmd_get(self, chat_id: int, args: list[str]) -> None:
         jobs = self._done_jobs()
@@ -426,8 +464,11 @@ class TelegramBot:
         if job_id is None:
             await self.messenger.send_text(chat_id, "Es läuft gerade kein Job.")
             return
-        await self.service.cancel(job_id)
-        await self.messenger.send_text(chat_id, "Job wird abgebrochen.")
+        job = self.store.get(job_id)
+        await self.messenger.send_text(
+            chat_id, f"<b>{esc(job.display_title)}</b> wirklich abbrechen? Fertige Schritte bleiben erhalten.",
+            [[("Ja, abbrechen", f"C:{job_id}"), ("Nein", f"k:{job_id}")]],
+        )
 
 
 # --- python-telegram-bot adapter ------------------------------------------------------------

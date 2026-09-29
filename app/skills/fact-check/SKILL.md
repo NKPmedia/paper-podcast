@@ -1,6 +1,6 @@
 ---
 name: fact-check
-description: Check a podcast script against the research notes before finalizing, verifying every claim, number and attribution. Use as the last step before returning a script.
+description: Skript vor der Abgabe gegen Recherche-Notizen und Volltexte prüfen: jede Aussage, Zahl und Zuschreibung. Nutzen als letzten Schritt vor der Rückgabe eines Skripts.
 ---
 
 # Fact-check a script

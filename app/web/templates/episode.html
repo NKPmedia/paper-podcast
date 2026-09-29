@@ -7,48 +7,46 @@
   {% if job.title %}<p class="muted">Thema: {{ job.topic }}</p>{% endif %}
   <p class="meta">
     <span class="badge {{ job.status }}" data-field="status">{{ status_labels[job.status] }}</span>
-    {{ lengths.get(options.get("length"), "") }} · Recherche {{ depths.get(options.get("research_depth"), "") }}
-    · erstellt {{ job.created_at | time }}
-    {% if job.cost_usd %}· Claude ≈ {{ "%.2f" | format(job.cost_usd) }} $ (API-Äquivalent){% endif %}
+    {{ lengths.get(options.get("length"), "") }} · Recherche {{ depths.get(options.get("research_depth"), "") }}{% if options.get("handout") %} · mit Handout{% endif %}
+    · {{ job.created_at | time }}
   </p>
 
   {% if job.active or job.status in ("failed", "cancelled") %}
   <ol class="stages">
     {% for stage, done in stages %}
-    <li class="{% if done %}done{% elif job.stage == stage and job.status == 'running' %}current{% endif %}">{{ stage_labels[stage] }}</li>
+    <li class="{% if done and not (job.status == 'failed' and job.stage == stage) %}done{% elif job.stage == stage and job.status == 'running' %}current{% elif job.stage == stage and job.status == 'failed' %}failed{% endif %}">{{ stage_labels[stage] }}</li>
     {% endfor %}
   </ol>
   {% endif %}
-  {% if job.active %}<p class="progress" data-field="message">{{ job.message or "Wartet auf den Start …" }}</p>{% endif %}
-  {% if job.error %}<pre class="error-box">{{ job.error }}</pre>{% endif %}
 
+  {% if job.active %}
+  <p class="progress" data-field="message" aria-live="polite">{{ job.message or "Wartet auf den Start …" }}</p>
+  <p class="hint">{% if job.status == "running" and job.started_at %}<span data-elapsed="{{ job.started_at }}">läuft seit …</span> · {% endif %}Eine Episode dauert meist 10–40 Minuten. Du kannst die Seite schließen – sie wird auf dem Server fertig{% if telegram_enabled %}, und Telegram meldet sich, sobald sie da ist{% endif %}.</p>
   <div class="actions">
-    {% if job.active %}
-    <form method="post" action="/episodes/{{ job.id }}/cancel"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Abbrechen</button></form>
-    {% else %}
-      {% if job.status != "done" %}
-      <form method="post" action="/episodes/{{ job.id }}/retry"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="primary">Fortsetzen</button></form>
-      {% endif %}
-      <form method="post" action="/episodes/{{ job.id }}/retry" class="inline-select">
-        <input type="hidden" name="csrf" value="{{ csrf }}">
-        <select name="from_stage">{% for s in stage_names %}<option value="{{ s }}">ab {{ stage_labels[s] }}</option>{% endfor %}</select>
-        <button>Neu erzeugen</button>
-      </form>
-      <form method="post" action="/episodes/{{ job.id }}/delete" data-confirm="Episode samt allen Dateien löschen?"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Löschen</button></form>
-    {% endif %}
+    <form method="post" action="/episodes/{{ job.id }}/cancel" data-confirm="Episode wirklich abbrechen? Bereits fertige Schritte bleiben erhalten und können später fortgesetzt werden."><input type="hidden" name="csrf" value="{{ csrf }}"><button>Abbrechen</button></form>
   </div>
+  {% elif job.status in ("failed", "cancelled") %}
+  <p>{% if job.status == "failed" %}Beim Schritt <b>{{ stage_labels.get(job.stage, "Start") }}</b> ist ein Fehler aufgetreten.{% else %}Die Episode wurde abgebrochen.{% endif %}
+     <b>Fortsetzen</b> macht an dieser Stelle weiter; fertige Schritte werden nicht wiederholt.</p>
+  {% if job.error %}<details><summary>Technische Details</summary><pre class="error-box">{{ job.error }}</pre></details>{% endif %}
+  <div class="actions">
+    <form method="post" action="/episodes/{{ job.id }}/retry"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="primary">Fortsetzen</button></form>
+  </div>
+  {% endif %}
 </section>
 
 {% if episode and not job.active %}
 <section class="card">
   <audio controls preload="metadata" src="/episodes/{{ job.id }}/audio" id="player"></audio>
-  <p><a href="/episodes/{{ job.id }}/audio?download=1">MP3 herunterladen</a> · {{ episode.duration_seconds | duration }} min
-    {% if has_handout %}· <a href="/episodes/{{ job.id }}/handout" target="_blank">Handout (PDF)</a>{% endif %}</p>
+  <p class="downloads">
+    <a href="/episodes/{{ job.id }}/audio?download=1">⬇ MP3 herunterladen</a> ({{ episode.duration_seconds | duration }} min)
+    {% if has_handout %} · <a href="/episodes/{{ job.id }}/handout" target="_blank">📄 Handout (PDF)</a>{% endif %}
+  </p>
   <p>{{ episode.summary }}</p>
   <h3>Kapitel</h3>
   <ol class="chapters">
     {% for c in episode.chapters %}
-    <li><button class="link" data-seek="{{ c.start_ms / 1000 }}">{{ (c.start_ms // 1000) | duration or "0:00" }}</button> {{ c.title }}</li>
+    <li><button class="link" data-seek="{{ c.start_ms / 1000 }}" aria-label="Kapitel {{ loop.index }} abspielen">{{ (c.start_ms // 1000) | duration or "0:00" }}</button> {{ c.title }}</li>
     {% endfor %}
   </ol>
 </section>
@@ -80,7 +78,7 @@
   <ol>
     {% for s in sources %}
     <li>{% if s.url | safe_url %}<a href="{{ s.url | safe_url }}" rel="noopener noreferrer" target="_blank">{{ s.title }}</a>{% else %}{{ s.title }}{% endif %}
-      {% if s.authors %}— {{ s.authors }}{% endif %}{% if s.year %} ({{ s.year }}){% endif %}
+      {% if s.authors %}– {{ s.authors }}{% endif %}{% if s.year %} ({{ s.year }}){% endif %}
       {% if s.why_relevant %}<br><span class="muted">{{ s.why_relevant }}</span>{% endif %}</li>
     {% endfor %}
   </ol>
@@ -89,38 +87,51 @@
 
 {% if candidates %}
 <details class="card">
-  <summary><h2>Recherche-Details</h2></summary>
+  <summary><h2>So wurde recherchiert</h2></summary>
   {% if selection %}<p><strong>Fokus:</strong> {{ selection.focus }}</p>{% endif %}
   {% set selected = selection.selected | map(attribute="id") | list if selection else [] %}
   {% set paper_by_id = {} %}{% for p in papers %}{% set _ = paper_by_id.update({p.id: p}) %}{% endfor %}
+  <p class="hint">Scouts haben {{ candidates | length }} Quellen gefunden und bewertet (0–10); {{ selected | length }} davon wurden im Volltext gelesen.</p>
   <table class="candidates">
-    <thead><tr><th>Bewertung</th><th>Quelle</th><th>Gefunden von</th><th>Volltext</th></tr></thead>
+    <thead><tr><th>Bewertung</th><th>Quelle</th><th>Gefunden bei</th></tr></thead>
     <tbody>
-    {% for c in candidates %}
+    {% for c in (candidates | selectattr("id", "in", selected) | list) + (candidates | rejectattr("id", "in", selected) | list) %}
     <tr class="{% if c.id in selected %}selected{% endif %}">
-      <td>{{ c.score }}</td>
-      <td>{% if c.url | safe_url %}<a href="{{ c.url | safe_url }}" rel="noopener noreferrer" target="_blank">{{ c.title }}</a>{% else %}{{ c.title }}{% endif %}
-        <br><span class="muted">{{ c.reason }}</span></td>
-      <td>{{ c.found_by | join(", ") }}</td>
-      <td>{% if c.id in paper_by_id %}{% if paper_by_id[c.id].file %}✓ {{ paper_by_id[c.id].format }}{% else %}<span title="{{ paper_by_id[c.id].error }}">✗</span>{% endif %}{% endif %}</td>
+      <td>{{ c.score | round | int }}</td>
+      <td>{% if c.id in selected %}<span class="badge done">gelesen</span> {% endif %}{% if c.url | safe_url %}<a href="{{ c.url | safe_url }}" rel="noopener noreferrer" target="_blank">{{ c.title }}</a>{% else %}{{ c.title }}{% endif %}
+        <br><span class="muted">{{ c.reason }}</span>
+        {% if c.id in paper_by_id %}<br><span class="hint">{% if paper_by_id[c.id].file %}Volltext geladen ({{ paper_by_id[c.id].format | upper }}){% else %}Volltext nicht verfügbar – per Webabruf gelesen{% endif %}</span>{% endif %}</td>
+      <td>{% for a in c.found_by %}{{ angle_labels.get(a, a) }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
     </tr>
     {% endfor %}
     </tbody>
   </table>
+</details>
+{% endif %}
+
+{% if not job.active %}
+<details class="card">
+  <summary><h2>Verwalten</h2></summary>
+  {% if job.cost_usd %}<p class="hint">Claude-Nutzung dieser Episode: ≈ {{ job.cost_usd | money }} (API-Gegenwert; mit Abo wird dein Kontingent belastet).</p>{% endif %}
+  <form method="post" action="/episodes/{{ job.id }}/retry" class="inline-select" data-confirm="Die gewählten Schritte und alle danach werden neu erzeugt, die bisherige Fassung wird ersetzt. Fortfahren?">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label class="sr-only" for="from_stage">Neu erzeugen ab</label>
+    <select name="from_stage" id="from_stage">{% for s in stage_names %}<option value="{{ s }}" {% if s == "script" %}selected{% endif %}>ab {{ stage_labels[s] }}{% if s == "research" %} (komplett neu, dauert am längsten){% endif %}</option>{% endfor %}</select>
+    <button>Neu erzeugen</button>
+  </form>
   {% if claude_calls %}
   <h3>Claude-Aufrufe</h3>
   <table>
-    <thead><tr><th>Schritt</th><th>Modell</th><th>Runden</th><th>Kosten</th><th>Skills</th></tr></thead>
+    <thead><tr><th>Schritt</th><th>Modell</th><th>Runden</th><th>Kosten</th></tr></thead>
     <tbody>
     {% for c in claude_calls %}
-    <tr><td>{{ c.stage }}{% if c.step %} · {{ c.step }}{% endif %}{% if c.attempt %} · Versuch {{ c.attempt }}{% endif %}</td>
-      <td>{{ c.model or "" }}</td><td>{{ c.turns }}</td>
-      <td>{% if c.cost_usd %}{{ "%.2f" | format(c.cost_usd) }} ${% endif %}</td>
-      <td>{{ (c.skills_used or []) | join(", ") }}</td></tr>
+    <tr><td>{{ stage_labels.get(c.stage, c.stage) }}{% if c.step %} · {{ c.step.replace("scout:", "Scout ") }}{% endif %}{% if c.attempt and c.attempt > 1 %} · Versuch {{ c.attempt }}{% endif %}</td>
+      <td>{{ c.model or "" }}</td><td>{{ c.turns }}</td><td>{{ c.cost_usd | money }}</td></tr>
     {% endfor %}
     </tbody>
   </table>
   {% endif %}
+  <form method="post" action="/episodes/{{ job.id }}/delete" data-confirm="Episode samt allen Dateien endgültig löschen?"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Episode löschen</button></form>
 </details>
 {% endif %}
 {% endblock %}
