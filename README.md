@@ -5,8 +5,7 @@ two-person podcast: Claude Code researches the topic on the web, writes a dialog
 between a curious host and an expert, and a free online TTS speaks it.
 
 See [PLAN.md](PLAN.md) for the full design. The core pipeline, the handout, the
-password-protected web UI, the Telegram bot, the podcast feed, email and the REST
-API are all implemented.
+password-protected web UI, the Telegram bot and the podcast feed are implemented.
 
 ## Quick start (Docker)
 
@@ -89,30 +88,15 @@ unless `TELEGRAM_NOTIFY_ALL=false`.
 25-minute episode. For larger files, point `TELEGRAM_API_BASE_URL` at a
 self-hosted Bot API server.
 
-## Podcast feed, email, REST API
+## Podcast feed
 
-The **Verbindungen** page in the web UI shows how each connection is set up.
-
-- **Podcast feed:** a private RSS feed with iTunes tags, chapters (Podcasting 2.0)
-  and a handout link. Subscribe to it in AntennaPod, Pocket Casts or Apple
-  Podcasts ("follow a show by URL"). The URL contains a secret token.
-- **Email:** a message when an episode is done or failed, with summary, chapters
-  and sources, and the handout attached (the MP3 only if `EMAIL_ATTACH_AUDIO=true`).
-  The page has a button to send a test email.
-- **REST API** (with `API_TOKEN`), using `Authorization: Bearer <token>`:
-
-  | Endpoint | What it does |
-  |---|---|
-  | `POST /api/episodes` | Create an episode: `{"topic", "length", "research_depth", "handout", "extra_instructions", "callback_url"}`. Answers `201` with the episode JSON. |
-  | `GET /api/episodes`, `GET /api/episodes/<id>` | Status, title, chapters, sources, links. |
-  | `GET /api/episodes/<id>/audio`, `…/handout` | The files. |
-  | `POST /api/episodes/<id>/cancel`, `…/retry?from_stage=script` | Cancel, or run again. |
-
-- **Webhooks:** with a `callback_url`, the server POSTs
-  `{"event": "done" | "failed" | "cancelled", "episode": {…}}` when the job ends.
-  - It retries up to 3 times.
-  - The request is signed: `X-Paper-Podcast-Signature: sha256=<HMAC-SHA256 of the
-    body, keyed with API_TOKEN>`.
+The **Verbindungen** page shows your private feed URL, with a copy button.
+- Subscribe to it in AntennaPod, Pocket Casts or Apple Podcasts ("follow a show
+  by URL"), and new episodes appear automatically.
+- Each episode includes its chapters (Podcasting 2.0), show notes with sources,
+  and a handout link.
+- The URL contains a secret token. For a new one, delete `data/feed_token` (or set
+  `FEED_TOKEN`) and restart.
 
 ## CLI
 

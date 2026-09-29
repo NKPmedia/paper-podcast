@@ -6,7 +6,7 @@ papers); Claude Code researches it and writes a German two-person podcast script
 optional PDF handout with Python-generated plots can be produced alongside.
 You control it from a password-protected website and a Telegram bot.
 
-Status: **all milestones (1–6) implemented** — see README.md. Next: periodic digest episodes (design in section 7).
+Status: **all milestones implemented** (email and REST API dropped on request) — see README.md. Next: periodic digest episodes (design in section 7).
 
 ---
 
@@ -27,7 +27,7 @@ Status: **all milestones (1–6) implemented** — see README.md. Next: periodic
 | Skills | Claude Code Agent Skills (`SKILL.md` folders) that Claude loads on demand; bundled defaults plus your own, managed in the web UI |
 | Users | Single user: one web password, Telegram whitelist of chat IDs |
 | Hosting | One exposed port behind your existing reverse proxy; 4 GB RAM / 2 vCPU |
-| Connectors | Web UI, Telegram, private podcast RSS feed, email (SMTP), REST API + webhook |
+| Connectors | Web UI, Telegram, private podcast RSS feed (email and REST API dropped on request) |
 | Later | Periodic "new relevant papers" digest episodes (designed for, not built) |
 
 ## 2. Lessons from existing projects
@@ -53,7 +53,7 @@ no Postgres, no separate worker service.
 
 ```
                 ┌──────────────────── app container ─────────────────────┐
- Browser ──────▶│ FastAPI (web UI + REST API + RSS)                      │
+ Browser ──────▶│ FastAPI (web UI + RSS feed)                            │
  Telegram ◀────▶│ Telegram bot (long polling, no inbound port needed)    │
                 │ Scheduler (APScheduler; cleanup now, digests later)    │
                 │        │ all create Jobs                               │
@@ -325,12 +325,7 @@ Prompt blocks and skills do different jobs:
 ### Other connectors
 - **Podcast RSS**: `/feed/<secret-token>.xml` with iTunes tags, subscribable in
   AntennaPod, Pocket Casts and similar apps. Audio URLs carry the same token.
-- **Email**: SMTP notification when an episode is ready or fails, with a link and
-  optionally the MP3 attached. Inbound email is not planned.
-- **REST API**: authenticated with a bearer token (`API_TOKEN`).
-  - Endpoints: `POST /api/episodes`, `GET /api/episodes[/{id}]`,
-    `GET /api/episodes/{id}/audio`.
-  - An optional `callback_url` receives a webhook POST on completion.
+- Email notifications and a REST API with webhooks were dropped on request.
 
 ## 7. Future: periodic digest episodes (design only)
 
@@ -374,17 +369,16 @@ paper-podcast/
 │   ├── skills/           bundled Agent Skills (<name>/SKILL.md, reference/, scripts/)
 │   ├── web/              routes, templates, static
 │   ├── telegram_bot.py
-│   ├── notifiers/        telegram.py email.py webhook.py
+│   ├── telegram_bot.py   (bot + worker listener)
 │   └── feed.py
 └── tests/
 ```
 
 Environment variables:
 - **Claude**: `CLAUDE_CODE_OAUTH_TOKEN`.
-- **Web and API**: `WEB_PASSWORD_HASH`, `SESSION_SECRET`, `PUBLIC_BASE_URL`,
-  `API_TOKEN`, `FEED_TOKEN`.
+- **Web**: `WEB_PASSWORD_HASH`, `SESSION_SECRET`, `PUBLIC_BASE_URL`, `FEED_TOKEN`.
 - **Telegram**: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_CHAT_IDS`.
-- **Optional**: `GEMINI_API_KEY`, `SMTP_*`.
+- **Optional**: `GEMINI_API_KEY`.
 
 Runtime details:
 - The container runs as a non-root user.
@@ -404,7 +398,7 @@ Runtime details:
 3. **Telegram bot**: `/new`, `/current`, `/list`, `/get`, `/status`, `/cancel`, and
    progress updates.
 4. **Handout**: Markdown + plots → PDF, delivered via web and Telegram.
-5. **Connectors**: RSS feed, email notifier, REST API + webhook.
+5. **Connectors**: RSS feed.
 6. **Polish**: Gemini TTS provider with fallback, jingle, chapters, cover, retries,
    tests.
 7. *(Later)* Periodic digest episodes.

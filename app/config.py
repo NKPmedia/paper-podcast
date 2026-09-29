@@ -15,10 +15,8 @@ SECRET_ENV_VARS = (
     "TELEGRAM_BOT_TOKEN",
     "WEB_PASSWORD_HASH",
     "SESSION_SECRET",
-    "API_TOKEN",
     "FEED_TOKEN",
     "GEMINI_API_KEY",
-    "SMTP_PASSWORD",
 )
 
 
@@ -39,21 +37,8 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_allowed_chat_ids: str = ""  # comma-separated; empty = setup mode (bot replies with your ID)
     telegram_notify_all: bool = True  # also announce and send episodes started from the web UI
-    # REST API + webhooks (disabled while empty)
-    api_token: str = ""
     # Podcast feed token (empty = generated once and stored in the data dir)
     feed_token: str = ""
-
-    # Email notifications (disabled while SMTP_HOST or EMAIL_TO is empty)
-    smtp_host: str = ""
-    smtp_port: int = 587
-    smtp_security: str = "starttls"  # starttls | ssl | none
-    smtp_username: str = ""
-    smtp_password: str = ""
-    smtp_from: str = ""
-    email_to: str = ""  # comma-separated
-    email_events: str = "done,failed"
-    email_attach_audio: bool = False
 
     # Optional self-hosted Bot API server (lifts the 50 MB upload limit), e.g. http://telegram-bot-api:8081
     telegram_api_base_url: str = ""
