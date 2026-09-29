@@ -118,6 +118,7 @@ docker compose exec app python -m app.cli skills    # list skills
 |---|---|---|
 | research | 1. Scouts (Haiku, in parallel by angle) search and rank candidates. 2. The main model (Opus) selects papers. 3. Our code downloads the full texts (arXiv HTML → PDF → open-access PDF). 4. Opus reads every paper and writes notes | `scouts/`, `candidates.json`, `selection.json`, `papers/`, `research.md`, `sources.json` |
 | script | Claude writes the dialogue from the notes and looks up details in `papers/` when needed; the result is checked (length, speakers, no formulas) and retried with feedback | `script.json` |
+| handout (optional) | Claude writes the handout as Markdown, plus matplotlib code for 1–3 figures and LaTeX for key formulas. Our code runs the plot code in a sandbox, renders the formulas and builds an A4 PDF. Anything the script points to ("steht im Handout") is included | `handout/`, `handout.pdf` |
 | tts | Edge TTS, one clip per line, with retries; existing clips are reused on resume | `clips/` |
 | audio | Clips joined with pauses, optional intro/outro, loudness normalized to -16 LUFS, MP3 with ID3 tags and chapters | `episode.mp3`, `episode.json` |
 
@@ -183,6 +184,12 @@ and edit it. Blocks are Jinja2 templates with `{{ host_name }}`, `{{ expert_name
 
 - Claude gets no `Bash` tool. Research uses only WebSearch, WebFetch and Read;
   scripting uses only Read.
+- Handout plot code comes from Claude and is treated as untrusted:
+  - An allow-list check before it runs: only `matplotlib`, `numpy` and `math`; no file,
+    network or introspection functions.
+  - A separate isolated Python process with an empty environment and CPU, memory
+    and file-size limits.
+  - The PDF renderer loads only files from the handout folder.
 - Papers are downloaded by our code, not by Claude:
   - only public `https` addresses, checked again on every redirect;
   - a size limit, 20 MB by default.

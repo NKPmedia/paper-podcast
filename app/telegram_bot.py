@@ -22,7 +22,7 @@ from app.config import Settings
 from app.db import Job
 from app.jobs import JobError, JobService, Worker
 from app.models import EpisodeOptions, EpisodeRequest, Length, ResearchDepth
-from app.pipeline import STAGE_ARTIFACTS, STAGE_NAMES
+from app.pipeline import STAGE_ARTIFACTS, stages_for
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ Button = tuple[str, str]  # (label, callback data)
 Keyboard = list[list[Button]]
 
 MAX_AUDIO_BYTES = 49 * 1024 * 1024  # Bot API upload limit is 50 MB
-STAGE_LABELS = {"research": "Recherche", "script": "Skript", "tts": "Sprache", "audio": "Audio"}
+STAGE_LABELS = {"research": "Recherche", "script": "Skript", "handout": "Handout", "tts": "Sprache", "audio": "Audio"}
 LENGTH_LABELS = {"kurz": "Kurz (~5 min)", "mittel": "Mittel (~12 min)", "lang": "Lang (~25 min)"}
 DEPTH_LABELS = {"quick": "Schnell", "medium": "Mittel", "deep": "Gründlich"}
 STATUS_ICONS = {"queued": "⏳", "running": "⚙️", "done": "✅", "failed": "❌", "cancelled": "🚫"}
@@ -71,6 +71,9 @@ class Messenger(Protocol):
         duration: int, caption: str,
     ) -> str: ...
 
+    async def send_document(self, chat_id: int, path: Path | None, *, file_id: str | None, filename: str,
+                            caption: str) -> str: ...
+
     async def answer_callback(self, callback_id: str, text: str = "") -> None: ...
 
 
@@ -79,6 +82,7 @@ class Draft:
     topic: str
     length: str = Length.mittel.value
     depth: str = ResearchDepth.medium.value
+    handout: bool = False
 
 
 def esc(text: str) -> str:
@@ -173,11 +177,13 @@ class TelegramBot:
 
         text = (
             f"<b>Neue Episode</b>\n{esc(draft.topic)}\n\n"
-            f"Länge: {LENGTH_LABELS[draft.length]}\nRecherche: {DEPTH_LABELS[draft.depth]}"
+            f"Länge: {LENGTH_LABELS[draft.length]}\nRecherche: {DEPTH_LABELS[draft.depth]}\n"
+            f"Handout: {'ja (PDF)' if draft.handout else 'nein'}"
         )
         keyboard = [
             [(mark(v.capitalize(), draft.length == v), f"d:len:{v}") for v in LENGTH_LABELS],
             [(mark(DEPTH_LABELS[v], draft.depth == v), f"d:dep:{v}") for v in DEPTH_LABELS],
+            [(mark("📄 Handout (PDF)", draft.handout), "d:ho")],
             [("▶ Starten", "d:go"), ("✖ Verwerfen", "d:x")],
         ]
         return text, keyboard
@@ -205,6 +211,8 @@ class TelegramBot:
             draft.length = value
         elif field == "dep" and value in DEPTH_LABELS:
             draft.depth = value
+        elif field == "ho":
+            draft.handout = not draft.handout
         elif field == "x":
             del self.drafts[(chat_id, message_id)]
             await self.messenger.edit_text(chat_id, message_id, f"Verworfen: {esc(draft.topic)}")
@@ -214,7 +222,8 @@ class TelegramBot:
             del self.drafts[(chat_id, message_id)]
             request = EpisodeRequest(
                 topic=draft.topic,
-                options=EpisodeOptions(length=Length(draft.length), research_depth=ResearchDepth(draft.depth)),
+                options=EpisodeOptions(length=Length(draft.length), research_depth=ResearchDepth(draft.depth),
+                                       handout=draft.handout),
             )
             job = self.service.submit(request, origin="telegram")
             # Record the status message before the first await, so the worker's
@@ -256,7 +265,7 @@ class TelegramBot:
             else:
                 job_dir = self.service.job_dir(job.id)
                 steps = []
-                for stage in STAGE_NAMES:
+                for stage in stages_for(self.service.request(job.id).options.handout):
                     if (job_dir / STAGE_ARTIFACTS[stage]).exists() and stage != job.stage:
                         steps.append(f"✓ {STAGE_LABELS[stage]}")
                     elif stage == job.stage:
@@ -343,6 +352,16 @@ class TelegramBot:
             )
             if file_id and file_id != meta.get("audio_file_id"):
                 meta["audio_file_id"] = file_id  # re-sends reuse Telegram's copy
+                self._save_meta(job.id, meta)
+        handout = job_dir / "handout.pdf"
+        if handout.exists():
+            meta = self._meta(job.id)
+            file_id = await self.messenger.send_document(
+                chat_id, None if meta.get("handout_file_id") else handout, file_id=meta.get("handout_file_id"),
+                filename=f"Handout - {episode['title'][:60]}.pdf", caption="📄 Handout zur Episode",
+            )
+            if file_id and file_id != meta.get("handout_file_id"):
+                meta["handout_file_id"] = file_id
                 self._save_meta(job.id, meta)
         chapters = "\n".join(f"{fmt_duration(c['start_ms'] // 1000)} {esc(c['title'])}" for c in episode["chapters"])
         sources = "\n".join(
@@ -458,6 +477,16 @@ class PTBMessenger:
                     duration=duration, filename=path.name, read_timeout=120, write_timeout=300,
                 )
         return message.audio.file_id if message.audio else ""
+
+    async def send_document(self, chat_id, path, *, file_id, filename, caption) -> str:
+        if file_id:
+            message = await self.bot.send_document(chat_id, file_id, caption=caption)
+        else:
+            with open(path, "rb") as document:
+                message = await self.bot.send_document(
+                    chat_id, document, caption=caption, filename=filename, read_timeout=60, write_timeout=120,
+                )
+        return message.document.file_id if message.document else ""
 
     async def answer_callback(self, callback_id: str, text: str = "") -> None:
         await self.bot.answer_callback_query(callback_id, text=text or None)

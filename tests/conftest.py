@@ -47,8 +47,28 @@ SCOUT = {
 SELECTION = {"focus": "Ergebnis A", "selected": [{"id": "arxiv:2401.00001", "reason": "Kern"}]}
 
 
+HANDOUT = {
+    "markdown": "# Handout zur Testepisode\n\nDie Kernidee in Kürze.\n\n{{plot:ergebnis}}\n\n"
+                "## Formel\n\n{{formula:attention}}\n\nIn Worten: gewichteter Mittelwert.\n\n"
+                "{{formula:kaputt}}\n\n![extern](https://example.org/tracker.png)\n\n## Quellen\n\n- Ein Paper (2024)",
+    "plots": [
+        {"name": "Ergebnis", "caption": "Ergebnis A (Muster 2024)",
+         "code": "plt.bar(['Alt', 'Neu'], [3, 5], color=['#9AA0A6', '#2F6DB5'])\nplt.title('Neu ist besser')"},
+        {"name": "zweite", "caption": "Schematisch", "code": "import os\nos.listdir('/')"},
+    ],
+    "formulas": [
+        {"name": "attention", "latex": "\\mathrm{softmax}\\left(\\frac{QK^T}{\\sqrt{d}}\\right)V"},
+        {"name": "kaputt", "latex": "\\unknowncommand{"},
+    ],
+}
+PLOT_FIX = {"plots": [{"name": "zweite", "caption": "Schematisch",
+                       "code": "import numpy as np\nx = np.linspace(0, 1, 20)\nplt.plot(x, x**2)"}]}
+
+
 def default_responses(script: dict | None = None) -> dict:
     return {
+        "Handout": [HANDOUT],
+        "PlotFixes": [PLOT_FIX],
         "ScoutResult": [SCOUT] * 10,
         "Selection": [SELECTION],
         "ResearchResult": [RESEARCH],

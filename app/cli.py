@@ -61,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
         new.add_argument("topic", help="Thema / Paper-Beschreibung")
         new.add_argument("--length", choices=[x.value for x in Length], default=Length.mittel.value)
         new.add_argument("--depth", choices=[x.value for x in ResearchDepth], default=ResearchDepth.medium.value)
+        new.add_argument("--handout", action="store_true", help="Handout als PDF erstellen")
         new.add_argument("--extra", default="", help="Zusätzliche Wünsche für diese Episode")
         new.add_argument("--block", action="append", default=[], metavar="BLOCK=TEXT",
                          help="Text an einen Prompt-Block anhängen (mehrfach möglich)")
@@ -114,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
             options=EpisodeOptions(
                 length=Length(args.length),
                 research_depth=ResearchDepth(args.depth),
+                handout=args.handout,
                 extra_instructions=args.extra,
                 block_overrides=_parse_kv(args.block),
                 extra_skills=args.skill,

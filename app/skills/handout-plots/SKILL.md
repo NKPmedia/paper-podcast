@@ -5,11 +5,12 @@ description: Style guide for matplotlib figures in the podcast handout PDF, cove
 
 # Handout plots (matplotlib)
 
-## Rules for the code
-- Plain matplotlib (numpy allowed). No seaborn, no network access, no reading files.
-- One figure per function; save with `fig.savefig("figures/<name>.png", dpi=200, bbox_inches="tight")`.
-- Size: `figsize=(6.5, 3.8)` for full width on A4.
-- Do not call `plt.show()`.
+## Rules for the code (enforced by the server)
+- Each snippet draws **exactly one figure** using `plt` and `np`, which are already imported.
+- Allowed imports: `matplotlib`, `numpy` and `math` only. No file access, no network, no `open`, `exec` or `eval`, no attributes starting with `_`.
+- Do **not** call `savefig` or `show`: the server saves the current figure as PNG at 200 dpi.
+- The default size is 6.5 × 3.8 inches (full A4 width). For another size, start with `fig, ax = plt.subplots(figsize=(6.5, 3))`.
+- Keep it short and deterministic: no random data unless you seed it and label the plot "schematisch".
 
 ## Choosing a plot
 | Content | Plot |
@@ -27,5 +28,5 @@ description: Style guide for matplotlib figures in the podcast handout PDF, cove
 - Font size at least 9 pt.
 
 ## Honesty
-- Use only numbers from the research notes and put the source in a caption line under the plot (`fig.text`).
+- Use only numbers from the research notes, and name the source in the plot's `caption` field.
 - If the data is illustrative, write "schematisch" in the title or caption.

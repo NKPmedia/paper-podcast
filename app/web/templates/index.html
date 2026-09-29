@@ -15,6 +15,7 @@
         <select name="depth">{% for value, label in depths.items() %}<option value="{{ value }}" {% if value == "medium" %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
       </label>
     </div>
+    <label class="check"><input type="checkbox" name="handout"> Handout als PDF (mit Abbildungen und Formeln)</label>
     <label>Zusätzliche Wünsche <span class="hint">optional</span>
       <input name="extra" placeholder="z.B. Fokus auf praktische Anwendungen">
     </label>

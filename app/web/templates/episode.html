@@ -42,7 +42,8 @@
 {% if episode and not job.active %}
 <section class="card">
   <audio controls preload="metadata" src="/episodes/{{ job.id }}/audio" id="player"></audio>
-  <p><a href="/episodes/{{ job.id }}/audio?download=1">MP3 herunterladen</a> · {{ episode.duration_seconds | duration }} min</p>
+  <p><a href="/episodes/{{ job.id }}/audio?download=1">MP3 herunterladen</a> · {{ episode.duration_seconds | duration }} min
+    {% if has_handout %}· <a href="/episodes/{{ job.id }}/handout" target="_blank">Handout (PDF)</a>{% endif %}</p>
   <p>{{ episode.summary }}</p>
   <h3>Kapitel</h3>
   <ol class="chapters">

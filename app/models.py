@@ -132,5 +132,32 @@ class Script(BaseModel):
         return sum(len(line.text.split()) for _, _, line in self.iter_lines())
 
 
+# --- Handout ------------------------------------------------------------------
+
+
+class Plot(BaseModel):
+    name: str = Field(description="Kurzer Bezeichner aus Kleinbuchstaben, Ziffern und Bindestrichen")
+    caption: str = Field(description="Bildunterschrift inklusive Quelle bzw. 'schematisch'")
+    code: str = Field(description="matplotlib-Code, der genau eine Abbildung zeichnet (ohne savefig/show)")
+
+
+class Formula(BaseModel):
+    name: str = Field(description="Kurzer Bezeichner aus Kleinbuchstaben, Ziffern und Bindestrichen")
+    latex: str = Field(description="Formel in LaTeX-Mathe-Syntax ohne $-Zeichen (matplotlib mathtext)")
+
+
+class Handout(BaseModel):
+    markdown: str = Field(
+        description="Handout als Markdown; Abbildungen und Formeln als eigene Zeile "
+        "{{plot:name}} bzw. {{formula:name}} einbinden"
+    )
+    plots: list[Plot] = Field(default_factory=list)
+    formulas: list[Formula] = Field(default_factory=list)
+
+
+class PlotFixes(BaseModel):
+    plots: list[Plot]
+
+
 def json_schema(model: type[BaseModel]) -> dict:
     return {"type": "json_schema", "schema": model.model_json_schema()}

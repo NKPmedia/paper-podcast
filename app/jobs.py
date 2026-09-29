@@ -61,6 +61,10 @@ class JobService:
             raise JobError("invalid job id")
         return path
 
+    def request(self, job_id: str) -> EpisodeRequest:
+        data = json.loads((self.job_dir(job_id) / "request.json").read_text(encoding="utf-8"))
+        return EpisodeRequest.model_validate(data["request"])
+
     def submit(self, request: EpisodeRequest, origin: str = "web") -> Job:
         job_dir = create_job(self.settings, request, self.prompts)
         job = self.store.add(job_dir.name, request.topic, origin)

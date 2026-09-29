@@ -121,19 +121,25 @@ def load_context(
 
 
 def _stages():
-    from app.pipeline import audio, research, script, speech
+    from app.pipeline import audio, handout, research, script, speech
 
-    return [research, script, speech, audio]
+    return [research, script, handout, speech, audio]
 
 
-STAGE_NAMES = ["research", "script", "tts", "audio"]
+STAGE_NAMES = ["research", "script", "handout", "tts", "audio"]
 # The file whose existence marks a stage as finished.
 STAGE_ARTIFACTS = {
     "research": "research.md",
     "script": "script.json",
+    "handout": "handout.pdf",
     "tts": "clips/manifest.json",
     "audio": "episode.mp3",
 }
+
+
+def stages_for(handout: bool) -> list[str]:
+    """The stages an episode actually runs (the handout is optional)."""
+    return [s for s in STAGE_NAMES if handout or s != "handout"]
 
 
 async def run_pipeline(
@@ -147,6 +153,8 @@ async def run_pipeline(
     force = False
     for stage in _stages():
         force = force or stage.NAME == from_stage
+        if hasattr(stage, "enabled") and not stage.enabled(ctx):
+            continue  # optional stage switched off for this episode
         if not force and stage.is_done(ctx):
             ctx.log.write("stage_skipped", stage=stage.NAME)
             continue

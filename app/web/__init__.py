@@ -25,7 +25,7 @@ from app.config import Settings, get_settings
 from app.db import JobStore
 from app.jobs import ContextFactory, JobError, JobService, Worker
 from app.models import EpisodeOptions, EpisodeRequest, Length, ResearchDepth
-from app.pipeline import STAGE_ARTIFACTS, STAGE_NAMES, prompt_context
+from app.pipeline import STAGE_ARTIFACTS, prompt_context, stages_for
 from app.prompts import BLOCK_DESCRIPTIONS, PromptStore
 from app.skills import STAGES as SKILL_STAGES
 from app.skills import MAX_ZIP_BYTES, SkillError, SkillStore
@@ -33,7 +33,7 @@ from app.skills import MAX_ZIP_BYTES, SkillError, SkillStore
 log = logging.getLogger(__name__)
 
 WEB_DIR = Path(__file__).resolve().parent
-STAGE_LABELS = {"research": "Recherche", "script": "Skript", "tts": "Sprachausgabe", "audio": "Audio"}
+STAGE_LABELS = {"research": "Recherche", "script": "Skript", "handout": "Handout", "tts": "Sprachausgabe", "audio": "Audio"}
 STATUS_LABELS = {
     "queued": "Wartet",
     "running": "Läuft",
@@ -252,6 +252,7 @@ def create_app(
             options = EpisodeOptions(
                 length=Length(form.get("length", "mittel")),
                 research_depth=ResearchDepth(form.get("depth", "medium")),
+                handout=form.get("handout") == "on",
                 extra_instructions=str(form.get("extra", "")).strip(),
                 block_overrides=block_overrides,
                 extra_skills=[str(s) for s in form.getlist("extra_skills")],
@@ -279,6 +280,7 @@ def create_app(
         if job is None:
             return render(request, "error.html", 404, message="Episode nicht gefunden.")
         request_data = _read_json(job_dir / "request.json", {})
+        job_stages = stages_for(request_data.get("request", {}).get("options", {}).get("handout", False))
         research_md = job_dir / "research.md"
         log_entries = [
             json.loads(line)
@@ -289,7 +291,8 @@ def create_app(
             job=job,
             options=request_data.get("request", {}).get("options", {}),
             lengths=LENGTH_LABELS, depths=DEPTH_LABELS,
-            stages=[(s, (job_dir / STAGE_ARTIFACTS[s]).exists()) for s in STAGE_NAMES],
+            stages=[(s, (job_dir / STAGE_ARTIFACTS[s]).exists()) for s in job_stages],
+            has_handout=(job_dir / "handout.pdf").exists(),
             episode=_read_json(job_dir / "episode.json"),
             script=_read_json(job_dir / "script.json"),
             research_html=_markdown.render(research_md.read_text(encoding="utf-8")) if research_md.exists() else "",
@@ -299,7 +302,7 @@ def create_app(
             papers=_read_json(job_dir / "papers/index.json", []),
             claude_calls=[e for e in log_entries if e.get("event") == "claude"],
             names={"host": settings.host_name, "expert": settings.expert_name},
-            stage_names=STAGE_NAMES,
+            stage_names=job_stages,
         )
 
     @app.get("/episodes/{job_id}/status.json")
@@ -318,6 +321,15 @@ def create_app(
             return Response("Nicht gefunden", status_code=404)
         filename = f"{job_id}.mp3" if download else None
         return FileResponse(job_dir / "episode.mp3", media_type="audio/mpeg", filename=filename)
+
+    @app.get("/episodes/{job_id}/handout")
+    async def episode_handout(request: Request, job_id: str, download: bool = False):
+        require_user(request)
+        job, job_dir = load_job(job_id)
+        if job is None or not (job_dir / "handout.pdf").exists():
+            return Response("Nicht gefunden", status_code=404)
+        return FileResponse(job_dir / "handout.pdf", media_type="application/pdf",
+                            filename=f"{job_id}-handout.pdf" if download else None)
 
     async def job_action(request: Request, job_id: str, action):
         require_user(request)

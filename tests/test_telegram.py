@@ -16,7 +16,7 @@ CHAT = 4242
 
 class FakeMessenger:
     def __init__(self):
-        self.sent, self.edits, self.audio, self.answers = [], [], [], []
+        self.sent, self.edits, self.audio, self.answers, self.documents = [], [], [], [], []
         self._next_id = 100
 
     async def send_text(self, chat_id, text, keyboard=None):
@@ -30,6 +30,10 @@ class FakeMessenger:
     async def send_audio(self, chat_id, path, *, file_id, title, performer, duration, caption):
         self.audio.append({"chat_id": chat_id, "path": path, "file_id": file_id, "title": title, "caption": caption})
         return file_id or "FILE123"
+
+    async def send_document(self, chat_id, path, *, file_id, filename, caption):
+        self.documents.append({"chat_id": chat_id, "path": path, "file_id": file_id, "filename": filename})
+        return file_id or "DOC1"
 
     async def answer_callback(self, callback_id, text=""):
         self.answers.append(text)
@@ -269,3 +273,21 @@ def test_end_to_end_with_real_adapter(env):
             assert again["title"] == "Testepisode"
     finally:
         fake.stop()
+
+
+async def test_handout_toggle_and_delivery(env):
+    await env.bot.handle_text(CHAT, "Mit Handout")
+    draft = env.m.sent[-1]
+    assert "Handout: nein" in draft["text"] and "d:ho" in buttons(draft)
+    await env.bot.handle_callback(CHAT, draft["id"], "cb", "d:len:kurz")
+    await env.bot.handle_callback(CHAT, draft["id"], "cb", "d:dep:quick")
+    await env.bot.handle_callback(CHAT, draft["id"], "cb", "d:ho")
+    assert "Handout: ja (PDF)" in env.m.edits[-1]["text"]
+    await env.bot.handle_callback(CHAT, draft["id"], "cb", "d:go")
+    done = await run_next(env)
+    assert done.status == "done"
+    assert any("▶ <b>Handout</b>" in e["text"] for e in env.m.edits)
+    (doc,) = env.m.documents
+    assert doc["path"].name == "handout.pdf" and doc["filename"].startswith("Handout - ")
+    await env.bot.handle_command(CHAT, "folge", ["1"])
+    assert env.m.documents[-1]["file_id"] == "DOC1" and env.m.documents[-1]["path"] is None
