@@ -27,14 +27,22 @@
 # Quellen
 
 {% for s in sources %}- [{{ loop.index }}] {{ s.title }}{% if s.authors %} — {{ s.authors }}{% endif %}{% if s.year %} ({{ s.year }}){% endif %}
+{% endfor %}{% if papers %}
+# Volltexte zum Nachschlagen
+
+Die Notizen sind deine Hauptgrundlage. Die Volltexte der wichtigsten Paper liegen zusätzlich im Arbeitsverzeichnis:
+
+{% for p in papers %}- `{{ p.file }}`: {{ p.title }} ({{ p.lines }} Zeilen)
 {% endfor %}
+Schlage darin mit dem Read-Tool gezielt nach, statt Details zu erfinden: wenn ein Kapitel mehr Tiefe braucht, wenn du ein konkretes Beispiel oder eine Zahl genauer wissen willst, oder beim Faktencheck. Die Fundstellen in den Notizen (z.B. `papers/….md:210-245`) sagen dir, wo du lesen musst; nutze `offset` und `limit`, statt ganze Dateien zu lesen.
+{% endif %}
 # Dein Auftrag
 
 Schreibe das vollständige Podcast-Skript.
 
 1. Plane zuerst die Kapitel und was in jedem Kapitel vermittelt werden soll.
-2. Schreibe dann den Dialog. Nutze die Skills `german-podcast-dialogue` und `tts-friendly-text`.
-3. Prüfe das Ergebnis mit dem Skill `fact-check` gegen die Recherche-Notizen und korrigiere es, bevor du antwortest.
+2. Schreibe dann den Dialog. Nutze die Skills `german-podcast-dialogue` und `tts-friendly-text`. Baue das „Material für den Podcast“ aus den Notizen ein: Beispiele, Analogien und überraschende Fakten machen das Gespräch lebendig.
+3. Prüfe das Ergebnis mit dem Skill `fact-check` gegen die Recherche-Notizen{% if papers %} und die Volltexte{% endif %} und korrigiere es, bevor du antwortest.
 
 Die Länge ist wichtig: etwa {{ target_words }} Wörter gesprochener Text insgesamt.
 Sprecher-IDs: `host` = {{ host_name }}, `expert` = {{ expert_name }}.

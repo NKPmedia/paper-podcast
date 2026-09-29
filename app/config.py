@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     research_scout_model: str = "haiku"
     research_main_model: str = "opus"
     script_model: str = "opus"
-    claude_max_turns_script: int = 20
+    claude_max_turns_script: int = 40
 
     # Paper downloads (full texts for the main research agent)
     download_max_mb: int = 20

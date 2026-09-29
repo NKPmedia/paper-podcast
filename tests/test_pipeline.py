@@ -45,7 +45,9 @@ async def test_full_pipeline(settings):
 
     assert [s for i, s in enumerate(stages) if i == 0 or stages[i - 1] != s] == ["research", "script", "tts", "audio"]
     assert mp3.exists() and mp3.stat().st_size > 1000
-    assert (job / "research.md").read_text().startswith("# Testthema")
+    research_md = (job / "research.md").read_text()
+    assert research_md.startswith("# Testthema")
+    assert "## Material für den Podcast\n\n- Analogie: wie ein Staffellauf" in research_md
     assert json.loads((job / "sources.json").read_text())[0]["title"] == "Ein Paper"
     assert (job / "papers" / "arxiv_2401.00001.md").exists()
 
@@ -55,10 +57,15 @@ async def test_full_pipeline(settings):
     assert "Festkörperbatterien" in scout.prompt
     (read,) = claude.calls_for("ResearchResult")
     assert read.model == "opus" and "papers/arxiv_2401.00001.md" in read.prompt
+    assert "Belege mit Fundstelle" in read.prompt and "podcast_material" in read.prompt
     (script_call,) = claude.calls_for("Script")
     assert script_call.model == "opus"
     assert script_call.skills == ["german-podcast-dialogue", "tts-friendly-text", "fact-check"]
     assert "Ergebnis A" in script_call.prompt and "Mit Humor." in script_call.prompt
+    assert script_call.tools == ["Read"]
+    assert "# Volltexte zum Nachschlagen" in script_call.prompt
+    assert "`papers/arxiv_2401.00001.md`: Ein Paper (" in script_call.prompt
+    assert "Staffellauf" in script_call.prompt
     assert (job / ".claude/skills/fact-check/SKILL.md").exists()
 
     episode = json.loads((job / "episode.json").read_text())

@@ -30,7 +30,8 @@ def make_script(words_per_line: int = 12, chapters: int = 3, lines: int = 4) -> 
 
 RESEARCH = {
     "title_suggestion": "Testthema",
-    "notes": "## Kernaussagen\n- Ergebnis A [Muster 2024]",
+    "notes": "## Kernaussagen\n- Ergebnis A [Muster 2024, papers/arxiv_2401.00001.md:5-9]",
+    "podcast_material": "- Analogie: wie ein Staffellauf [Muster 2024, papers/arxiv_2401.00001.md:12-14]",
     "sources": [{"title": "Ein Paper", "authors": "Muster", "year": "2024", "url": "https://example.org"}],
 }
 

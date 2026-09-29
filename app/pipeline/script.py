@@ -70,6 +70,8 @@ async def run(ctx) -> None:
     notes = ctx.path("research.md").read_text(encoding="utf-8")
     sources = [Source(**s) for s in json.loads(ctx.path("sources.json").read_text(encoding="utf-8"))]
     target_words = ctx.prompt_context["target_words"]
+    index = ctx.path("papers/index.json")
+    papers = [p for p in json.loads(index.read_text(encoding="utf-8")) if p["file"]] if index.exists() else []
 
     prompt = render_stage(
         "script",
@@ -78,6 +80,7 @@ async def run(ctx) -> None:
         extra_instructions=opts.extra_instructions,
         notes=notes,
         sources=sources,
+        papers=papers,
         **ctx.prompt_context,
     )
     session_id = None

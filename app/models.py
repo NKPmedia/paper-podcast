@@ -91,6 +91,10 @@ class Selection(BaseModel):
 class ResearchResult(BaseModel):
     title_suggestion: str = Field(description="Arbeitstitel für die Episode")
     notes: str = Field(description="Ausführliche Recherche-Notizen als Markdown")
+    podcast_material: str = Field(
+        description="Markdown: Beispiele, Analogien, überraschende Fakten, Anekdoten und "
+        "prägnante Zitate für den Podcast, jeweils mit Beleg"
+    )
     sources: list[Source]
 
 

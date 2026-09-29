@@ -319,6 +319,8 @@ async def run(ctx) -> None:
 
     research = await read_and_write_notes(ctx, candidates, selection, papers, profile, skills)
     ctx.path("research.md").write_text(
-        f"# {research.title_suggestion}\n\n{research.notes.strip()}\n", encoding="utf-8"
+        f"# {research.title_suggestion}\n\n{research.notes.strip()}\n\n"
+        f"## Material für den Podcast\n\n{research.podcast_material.strip()}\n",
+        encoding="utf-8",
     )
     _write_json(ctx.path("sources.json"), [s.model_dump() for s in research.sources])

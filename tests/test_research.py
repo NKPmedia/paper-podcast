@@ -249,3 +249,12 @@ async def test_selection_with_only_unknown_ids_falls_back_to_ranking(settings):
     await run_pipeline(ctx_for(settings, job_dir, FakeClaude(responses)))
     selection = json.loads((job_dir / "selection.json").read_text())
     assert [s["id"] for s in selection["selected"]] == ["arxiv:2401.00001", "doi:10.1000/xyz"]
+
+
+async def test_script_without_full_texts_has_no_lookup_section(settings):
+    job_dir = job(settings, ResearchDepth.quick)
+    claude = FakeClaude(default_responses())
+    await run_pipeline(ctx_for(settings, job_dir, claude, routes={}))  # every download fails
+    (script_call,) = claude.calls_for("Script")
+    assert "Volltexte zum Nachschlagen" not in script_call.prompt
+    assert "und die Volltexte" not in script_call.prompt

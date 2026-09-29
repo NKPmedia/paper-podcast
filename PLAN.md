@@ -151,8 +151,19 @@ are deterministic, testable and resumable.
 - It may also use `WebSearch` and `WebFetch` for anything still missing.
 - Claude Code compacts the context on its own if it grows large. Very long papers
   are read in sections.
-- Output: `research.md` with concrete numbers and source tags, plus `sources.json`
-  (structured output), as before.
+- Output: `research.md` plus `sources.json` (structured output).
+  - Every claim in the notes carries a pointer into the full text, e.g.
+    `[Gu 2023, papers/arxiv_2312.00752.md:210-245]`.
+  - A required section **Material für den Podcast** holds examples, analogies,
+    surprising results, anecdotes and quotes.
+
+**Handover to the script step.**
+- Research and script stay separate calls: this keeps the script context small,
+  makes retries cheap, and lets you regenerate the script without re-reading.
+- The notes are not the only bridge. The script agent has `Read` access to
+  `papers/` and follows the pointers when a chapter needs depth.
+- The `fact-check` skill verifies central numbers against the cited paper passages.
+  If a note and the paper disagree, the paper wins.
 
 **Configuration** (settings, later also editable in the web UI):
 - `RESEARCH_SCOUT_MODEL=haiku`, `RESEARCH_MAIN_MODEL=opus`, `SCRIPT_MODEL=opus`.

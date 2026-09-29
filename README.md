@@ -44,7 +44,7 @@ docker compose run --rm app skills    # list skills
 | Stage | What happens | Output |
 |---|---|---|
 | research | 1. Scouts (Haiku, in parallel by angle) search and rank candidates. 2. The main model (Opus) selects papers. 3. Our code downloads the full texts (arXiv HTML → PDF → open-access PDF). 4. Opus reads every paper and writes notes | `scouts/`, `candidates.json`, `selection.json`, `papers/`, `research.md`, `sources.json` |
-| script | Claude writes the dialogue as structured JSON; it is checked for length and speakers and retried with feedback | `script.json` |
+| script | Claude writes the dialogue from the notes and looks up details in `papers/` when needed; the result is checked (length, speakers, no formulas) and retried with feedback | `script.json` |
 | tts | Edge TTS, one clip per line, with retries; existing clips are reused on resume | `clips/` |
 | audio | Clips joined with pauses, optional intro/outro, loudness normalized to -16 LUFS, MP3 with ID3 tags and chapters | `episode.mp3`, `episode.json` |
 
@@ -57,6 +57,14 @@ Research depth sets the number of scouts and papers:
 | `deep` | 5 | the above plus citation network and recent work | 10 |
 
 If a download fails, the main model falls back to `WebFetch` for that paper.
+
+`research.md` is the handover to the script step:
+- Every claim is cited with a pointer into the full text, e.g.
+  `[Gu 2023, papers/arxiv_2312.00752.md:210-245]`.
+- A section **Material für den Podcast** collects examples, analogies, surprising
+  findings and quotes.
+- The script agent reads the notes and opens the cited passages when it needs
+  depth or checks facts.
 
 Every stage is skipped if its output already exists, and so is every research step. `log.jsonl` records timings,
 Claude cost and turns, and which skills Claude actually used.
