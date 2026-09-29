@@ -10,7 +10,7 @@ The code is influenced by web content, so it is treated as untrusted:
    file-size limits.
 3. The runner, not the snippet, saves the current figure to a PNG.
 
-Formulas for the handout are rendered to PNGs with matplotlib's mathtext the same way.
+Figures are saved as vector PDFs for the LaTeX handout.
 """
 
 from __future__ import annotations
@@ -45,18 +45,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 job = json.load(open(sys.argv[1]))
-if job["kind"] == "plot":
-    plt.rcParams.update({"font.size": 10, "axes.spines.top": False, "axes.spines.right": False,
-                         "figure.figsize": (6.5, 3.8)})
-    exec(compile(job["code"], "<plot>", "exec"), {"plt": plt, "np": np, "math": math, "matplotlib": matplotlib})
-    fig = plt.gcf()
-    if not fig.axes:
-        raise SystemExit("Der Code hat keine Abbildung gezeichnet.")
-    fig.savefig(job["out"], dpi=200, bbox_inches="tight")
-else:
-    fig = plt.figure(figsize=(0.01, 0.01))
-    fig.text(0, 0, "$" + job["latex"] + "$", fontsize=13)
-    fig.savefig(job["out"], dpi=220, bbox_inches="tight", pad_inches=0.05, transparent=True)
+plt.rcParams.update({"font.size": 10, "axes.spines.top": False, "axes.spines.right": False,
+                     "figure.figsize": (6.5, 3.8), "pdf.fonttype": 42,
+                     "font.family": "serif", "font.serif": ["Latin Modern Roman", "CMU Serif", "DejaVu Serif"],
+                     "mathtext.fontset": "cm", "axes.unicode_minus": False})
+exec(compile(job["code"], "<plot>", "exec"), {"plt": plt, "np": np, "math": math, "matplotlib": matplotlib})
+fig = plt.gcf()
+if not fig.axes:
+    raise SystemExit("Der Code hat keine Abbildung gezeichnet.")
+fig.savefig(job["out"], bbox_inches="tight")
 '''
 
 
@@ -124,12 +121,4 @@ def render_plot(code: str, out: Path) -> RenderResult:
     except PlotRejected as exc:
         return RenderResult(False, str(exc))
     out.parent.mkdir(parents=True, exist_ok=True)
-    return _run({"kind": "plot", "code": code, "out": str(out.resolve())})
-
-
-def render_formula(latex: str, out: Path) -> RenderResult:
-    latex = latex.strip().strip("$")
-    if not latex or len(latex) > 500:
-        return RenderResult(False, "leere oder zu lange Formel")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    return _run({"kind": "formula", "latex": latex, "out": str(out.resolve())})
+    return _run({"code": code, "out": str(out.resolve())})

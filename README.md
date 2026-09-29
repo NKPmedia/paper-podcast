@@ -127,7 +127,7 @@ docker compose exec app python -m app.cli skills    # list skills
 |---|---|---|
 | research | 1. Scouts (Haiku, in parallel by angle) search and rank candidates. 2. The main model (Opus) selects papers. 3. Our code downloads the full texts (arXiv HTML → PDF → open-access PDF). 4. Opus reads every paper and writes notes | `scouts/`, `candidates.json`, `selection.json`, `papers/`, `research.md`, `sources.json` |
 | script | Claude writes the dialogue from the notes and looks up details in `papers/` when needed; the result is checked (length, speakers, no formulas) and retried with feedback | `script.json` |
-| handout (optional) | Claude writes the handout as Markdown, plus matplotlib code for 1–3 figures and LaTeX for key formulas. Our code runs the plot code in a sandbox, renders the formulas and builds an A4 PDF. Anything the script points to ("steht im Handout") is included | `handout/`, `handout.pdf` |
+| handout (optional) | Claude writes the handout body in **LaTeX**, with properly typeset formulas, tables and a glossary, plus matplotlib code for 1–3 figures. Our code renders the figures as vector PDFs in a sandbox and compiles the document with **pdflatex** under a fixed preamble. If compilation fails, Claude gets the error log and up to two repair rounds. Everything the script points to ("steht im Handout") is included | `handout/` (incl. `handout.tex`), `handout.pdf` |
 | tts | **Gemini** multi-speaker TTS (one request per chapter, both voices in one natural take) when `GEMINI_API_KEY` is set. When its free quota runs out, it switches to **Edge TTS** for the whole episode, so voices are never mixed. Without a key it uses Edge TTS: one clip per line, free, no key. Finished clips are reused on resume. | `clips/` |
 | audio | Clips joined with pauses, optional intro/outro, loudness normalized to -16 LUFS, MP3 with ID3 tags and chapters | `episode.mp3`, `episode.json` |
 
@@ -201,7 +201,12 @@ and edit it. Blocks are Jinja2 templates with `{{ host_name }}`, `{{ expert_name
     network or introspection functions.
   - A separate isolated Python process with an empty environment and CPU, memory
     and file-size limits.
-  - The PDF renderer loads only files from the handout folder.
+- The LaTeX body from Claude is untrusted too:
+  - It is checked before compiling: no preamble, packages, macro definitions,
+    file access (`\input`, `\write` …), `\csname` or `^^` escapes.
+  - `pdflatex` runs with shell escape off and kpathsea's paranoid file access
+    (no absolute paths, no `..`), in a temporary folder, with an empty environment
+    and limits.
 - Papers are downloaded by our code, not by Claude:
   - only public `https` addresses, checked again on every redirect;
   - a size limit, 20 MB by default.

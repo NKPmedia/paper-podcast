@@ -48,17 +48,15 @@ SELECTION = {"focus": "Ergebnis A", "selected": [{"id": "arxiv:2401.00001", "rea
 
 
 HANDOUT = {
-    "markdown": "# Handout zur Testepisode\n\nDie Kernidee in Kürze.\n\n{{plot:ergebnis}}\n\n"
-                "## Formel\n\n{{formula:attention}}\n\nIn Worten: gewichteter Mittelwert.\n\n"
-                "{{formula:kaputt}}\n\n![extern](https://example.org/tracker.png)\n\n## Quellen\n\n- Ein Paper (2024)",
+    "latex_body": "\\section{Die Kernidee}\nDie Kernidee in Kürze -- 50\\,\\% schneller.\n\n"
+                  "\\plot{ergebnis}\n\n\\section{Formel}\n\\begin{equation}\n"
+                  "\\mathrm{softmax}\\left(\\frac{QK^\\top}{\\sqrt{d}}\\right)V\n\\end{equation}\n"
+                  "In Worten: ein gewichteter Mittelwert.\n\n\\section{Quellen}\n"
+                  "\\begin{itemize}\\item Ein Paper (2024) \\url{https://example.org}\\end{itemize}\n",
     "plots": [
         {"name": "Ergebnis", "caption": "Ergebnis A (Muster 2024)",
          "code": "plt.bar(['Alt', 'Neu'], [3, 5], color=['#9AA0A6', '#2F6DB5'])\nplt.title('Neu ist besser')"},
         {"name": "zweite", "caption": "Schematisch", "code": "import os\nos.listdir('/')"},
-    ],
-    "formulas": [
-        {"name": "attention", "latex": "\\mathrm{softmax}\\left(\\frac{QK^T}{\\sqrt{d}}\\right)V"},
-        {"name": "kaputt", "latex": "\\unknowncommand{"},
     ],
 }
 PLOT_FIX = {"plots": [{"name": "zweite", "caption": "Schematisch",

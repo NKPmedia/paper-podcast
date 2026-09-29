@@ -29,7 +29,7 @@ BUNDLED_DIR = APP_DIR / "skills"
 DEFAULT_STAGE_SKILLS: dict[str, list[str]] = {
     "research": ["paper-research"],
     "script": ["german-podcast-dialogue", "tts-friendly-text", "fact-check"],
-    "handout": ["handout-plots"],
+    "handout": ["latex-handout", "handout-plots"],
 }
 
 STAGES = tuple(DEFAULT_STAGE_SKILLS)

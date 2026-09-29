@@ -16,4 +16,3 @@ python-multipart==0.0.32
 python-telegram-bot==22.8
 tzdata==2025.2
 uvicorn==0.54.0
-weasyprint==70.0

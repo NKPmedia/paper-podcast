@@ -137,22 +137,20 @@ class Script(BaseModel):
 
 class Plot(BaseModel):
     name: str = Field(description="Kurzer Bezeichner aus Kleinbuchstaben, Ziffern und Bindestrichen")
-    caption: str = Field(description="Bildunterschrift inklusive Quelle bzw. 'schematisch'")
+    caption: str = Field(description="Bildunterschrift als LaTeX-Text inklusive Quelle bzw. 'schematisch'")
     code: str = Field(description="matplotlib-Code, der genau eine Abbildung zeichnet (ohne savefig/show)")
 
 
-class Formula(BaseModel):
-    name: str = Field(description="Kurzer Bezeichner aus Kleinbuchstaben, Ziffern und Bindestrichen")
-    latex: str = Field(description="Formel in LaTeX-Mathe-Syntax ohne $-Zeichen (matplotlib mathtext)")
-
-
 class Handout(BaseModel):
-    markdown: str = Field(
-        description="Handout als Markdown; Abbildungen und Formeln als eigene Zeile "
-        "{{plot:name}} bzw. {{formula:name}} einbinden"
+    latex_body: str = Field(
+        description="Inhalt des Handouts als LaTeX (nur der Dokumentkörper, ohne Präambel); "
+        "Abbildungen als eigene Zeile mit \\plot{name}"
     )
     plots: list[Plot] = Field(default_factory=list)
-    formulas: list[Formula] = Field(default_factory=list)
+
+
+class HandoutFix(BaseModel):
+    latex_body: str = Field(description="Der vollständige, korrigierte LaTeX-Dokumentkörper")
 
 
 class PlotFixes(BaseModel):

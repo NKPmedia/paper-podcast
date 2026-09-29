@@ -1,10 +1,11 @@
 import json
 
+import pytest
 from pypdf import PdfReader
 
+from app.latex import LatexRejected, build_document, check_body, compile_pdf, expand_plots
 from app.models import EpisodeOptions, EpisodeRequest, Length, ResearchDepth
 from app.pipeline import create_job, load_context, run_pipeline
-from app.pipeline.handout import build_html, write_pdf
 from app.prompts import PromptStore
 from tests.conftest import FakeClaude, FakeTTS, default_responses, mock_downloads
 
@@ -12,8 +13,11 @@ from tests.conftest import FakeClaude, FakeTTS, default_responses, mock_download
 def handout_job(settings, handout=True):
     request = EpisodeRequest(topic="Transformer", options=EpisodeOptions(
         length=Length.kurz, research_depth=ResearchDepth.quick, handout=handout))
-    job_dir = create_job(settings, request, PromptStore(settings.prompts_dir))
-    return job_dir
+    return create_job(settings, request, PromptStore(settings.prompts_dir))
+
+
+def pdf_text(path) -> str:
+    return "".join(page.extract_text() for page in PdfReader(path).pages)
 
 
 async def test_handout_pipeline(settings):
@@ -26,24 +30,55 @@ async def test_handout_pipeline(settings):
     assert "handout" in stages and stages.index("handout") < stages.index("tts")
 
     (call,) = claude.calls_for("Handout")
-    assert call.skills == ["handout-plots"] and call.tools == ["Read"]
+    assert call.skills == ["latex-handout", "handout-plots"] and call.tools == ["Read"]
     assert "Testepisode" in call.prompt and "papers/arxiv_2401.00001.md" in call.prompt
     (fix,) = claude.calls_for("PlotFixes")
     assert "Import nicht erlaubt: os" in fix.prompt and fix.resume
+    assert claude.calls_for("HandoutFix") == []
 
     figures = job_dir / "handout" / "figures"
-    assert sorted(p.name for p in figures.iterdir()) == ["ergebnis.png", "formula-attention.png", "zweite.png"]
-    html = (job_dir / "handout" / "handout.html").read_text()
-    assert '<img src="figures/ergebnis.png"' in html and "Ergebnis A (Muster 2024)" in html
-    assert '<pre class="formula-src">\\unknowncommand{</pre>' in html  # failed formula shown as source
-    assert "<h2>Abbildungen</h2>" in html  # the repaired, unreferenced plot is appended
+    assert sorted(p.name for p in figures.iterdir()) == ["ergebnis.pdf", "zweite.pdf"]
+    tex = (job_dir / "handout" / "handout.tex").read_text()
+    assert "\\includegraphics[width=0.92\\linewidth]{figures/ergebnis.pdf}" in tex
+    assert "\\section{Abbildungen}" in tex  # the repaired, unreferenced plot is appended
+    text = pdf_text(job_dir / "handout.pdf")
+    assert "Testepisode" in text and "Die Kernidee" in text and "PAPER PODCAST" in text.upper()
+    assert "1 / 2" in text and "2 / 2" in text  # page count resolved in the second pdflatex run
 
-    text = "".join(page.extract_text() for page in PdfReader(job_dir / "handout.pdf").pages)
-    assert "Handout zur Testepisode" in text and "Paper Podcast" in text
 
+async def test_latex_errors_are_repaired(settings):
+    responses = default_responses()
+    broken = dict(responses["Handout"][0], latex_body="\\section{Kaputt}\nText mit \\begin{itemize} ohne Ende\n")
+    responses["Handout"] = [broken]
+    responses["HandoutFix"] = [
+        {"latex_body": "\\section{Noch kaputt}\n\\input{/etc/passwd}"},  # rejected by the check
+        {"latex_body": "\\section{Repariert}\nJetzt passt alles."},
+    ]
+    job_dir = handout_job(settings)
+    claude = FakeClaude(responses)
+    ctx = load_context(job_dir, settings, claude=claude, tts=FakeTTS())
+    ctx.download_options = mock_downloads()
+    await run_pipeline(ctx)
+
+    first, second = claude.calls_for("HandoutFix")
+    assert "LaTeX Error" in first.prompt and "Zeile" in first.prompt
+    assert "Sicherheitsprüfung" in second.prompt and "\\input" in second.prompt
+    assert "Repariert" in pdf_text(job_dir / "handout.pdf")
     log = [json.loads(line) for line in (job_dir / "log.jsonl").read_text().splitlines()]
     (entry,) = [e for e in log if e["event"] == "handout"]
-    assert entry["plot_errors"] == {} and entry["formula_errors"] == ["kaputt"]
+    assert len(entry["latex_errors"]) == 2
+
+
+async def test_handout_fails_after_repairs(settings):
+    responses = default_responses()
+    responses["Handout"] = [dict(responses["Handout"][0], latex_body="\\badmacro")]
+    responses["HandoutFix"] = [{"latex_body": "\\badmacro"}] * 2
+    job_dir = handout_job(settings)
+    ctx = load_context(job_dir, settings, claude=FakeClaude(responses), tts=FakeTTS())
+    ctx.download_options = mock_downloads()
+    with pytest.raises(RuntimeError, match="Handout ließ sich nicht setzen"):
+        await run_pipeline(ctx)
+    assert not (job_dir / "handout.pdf").exists()
 
 
 async def test_no_handout_when_disabled(settings):
@@ -58,19 +93,30 @@ async def test_no_handout_when_disabled(settings):
     assert claude.calls_for("Handout") == [] and not (job_dir / "handout.pdf").exists()
 
 
-def test_pdf_blocks_external_resources(tmp_path):
-    (tmp_path / "figures").mkdir()
-    secret = tmp_path.parent / "secret.png"
-    secret.write_bytes(b"x")
-    html = ('<html><body><h1>T</h1><img src="https://example.org/x.png">'
-            f'<img src="file://{secret}"><img src="../secret.png"></body></html>')
-    write_pdf(html, tmp_path, tmp_path / "out.pdf")  # must not raise or fetch
-    assert (tmp_path / "out.pdf").stat().st_size > 500
+@pytest.mark.parametrize("body", [
+    "\\input{/etc/passwd}", "\\include{x}", "\\immediate\\write18{id}", "\\newcommand{\\x}{y}",
+    "\\def\\x{y}", "\\usepackage{shellesc}", "^^5cinput{x}", "\\csname input\\endcsname",
+    "\\includegraphics{/etc/passwd}", "\\end{document}", "\\catcode`\\@=11", "\\openin5=/etc/passwd",
+])
+def test_dangerous_latex_is_rejected(body):
+    with pytest.raises(LatexRejected):
+        check_body(body)
 
 
-def test_markdown_raw_html_is_escaped():
-    from app.models import Handout
+def test_harmless_latex_passes():
+    check_body("\\section{Definition}\n\\begin{description}\\item[Default] x\\end{description} \\url{https://a.b}"
+               " \\textbf{Lettering} $\\delta$")
 
-    handout = Handout(markdown="# T\n\n<script>alert(1)</script>\n\n{{plot:nope}}", plots=[], formulas=[])
-    html = build_html("Pod", "T", handout, None, set(), set())
-    assert "<script>" not in html and "{{plot:nope}}" not in html
+
+def test_compiler_cannot_read_outside_files(tmp_path):
+    secret = tmp_path / "secret.tex"
+    secret.write_text("GEHEIMNIS")
+    tex = build_document("P", "T", "d", f"\\input{{{secret}}}")  # bypasses check_body on purpose
+    result = compile_pdf(tex, tmp_path / "none", tmp_path / "out.pdf")
+    assert not result.ok and not (tmp_path / "out.pdf").exists()
+
+
+def test_title_is_escaped(tmp_path):
+    tex = build_document("Pod & Co", "50 % mehr_Tempo #1", "d", expand_plots("Text", {}, set()))
+    assert compile_pdf(tex, tmp_path / "none", tmp_path / "out.pdf").ok
+    assert "50 % mehr_Tempo #1" in pdf_text(tmp_path / "out.pdf")

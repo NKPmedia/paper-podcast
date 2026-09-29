@@ -8,7 +8,7 @@ description: Stilregeln für matplotlib-Abbildungen im Handout-PDF: passender Di
 ## Rules for the code (enforced by the server)
 - Each snippet draws **exactly one figure** using `plt` and `np`, which are already imported.
 - Allowed imports: `matplotlib`, `numpy` and `math` only. No file access, no network, no `open`, `exec` or `eval`, no attributes starting with `_`.
-- Do **not** call `savefig` or `show`: the server saves the current figure as PNG at 200 dpi.
+- Do **not** call `savefig` or `show`: the server saves the current figure as a vector PDF for the LaTeX handout.
 - The default size is 6.5 × 3.8 inches (full A4 width). For another size, start with `fig, ax = plt.subplots(figsize=(6.5, 3))`.
 - Keep it short and deterministic: no random data unless you seed it and label the plot "schematisch".
 
@@ -28,5 +28,5 @@ description: Stilregeln für matplotlib-Abbildungen im Handout-PDF: passender Di
 - Font size at least 9 pt.
 
 ## Honesty
-- Use only numbers from the research notes, and name the source in the plot's `caption` field.
+- Use only numbers from the research notes, and name the source in the plot's `caption` field. The caption is LaTeX text, so escape `%`, `&`, `_` and `#`.
 - If the data is illustrative, write "schematisch" in the title or caption.

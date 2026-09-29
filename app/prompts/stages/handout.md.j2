@@ -28,8 +28,7 @@ Im Gespräch wird ausdrücklich auf das Handout verwiesen. Diese Punkte **müsse
 {% endif %}
 # Dein Auftrag
 
-Liefere das Handout als strukturierte Ausgabe:
+Das Handout wird mit LaTeX (pdflatex) gesetzt. Präambel, Titel und Layout liefert der Server; du schreibst nur den **Dokumentkörper**. Halte dich an den Skill `latex-handout`.
 
-- `markdown`: Das Handout auf Deutsch. Beginne mit `# ` und dem Titel. Nutze Überschriften, kurze Absätze, Listen und bei Bedarf Tabellen. Binde Abbildungen und Formeln jeweils als **eigene Zeile** ein: `{{ "{{plot:name}}" }}` bzw. `{{ "{{formula:name}}" }}`. Erkläre jede Formel direkt darunter in Worten. Schreibe kein HTML und keine Bild-Links.
-- `plots`: 1 bis 3 Abbildungen (Skill `handout-plots`). Der Code zeichnet genau eine Abbildung mit `plt`/`np`. Erlaubte Importe sind nur `matplotlib`, `numpy` und `math`. Kein `savefig`, kein `show`, kein Dateizugriff: Das Speichern übernimmt der Server. Verwende nur Zahlen aus der Recherche; andernfalls kennzeichne die Abbildung als „schematisch“.
-- `formulas`: die wichtigsten Formeln in LaTeX-Mathe-Syntax, wie sie matplotlib-mathtext versteht (`\frac`, `\sqrt`, `\mathrm`, `\sum`, griechische Buchstaben; keine Umgebungen wie `align`).
+- `latex_body`: Das Handout auf Deutsch als LaTeX: `\section`, `\subsection`, Absätze, `itemize`/`enumerate`, Tabellen mit `booktabs`. Formeln setzt du richtig als LaTeX (`equation`, `align`, `$…$`) und erklärst jede direkt darunter in Worten. Abbildungen bindest du jeweils als eigene Zeile mit `\plot{name}` ein. Der Titel steht schon im Kopf, beginne also direkt mit dem Inhalt. Zum Schluss kommt ein Abschnitt `\section{Quellen}` mit den Links als `\url{…}`.
+- `plots`: 1 bis 3 Abbildungen (Skill `handout-plots`). Der Code zeichnet genau eine Abbildung mit `plt`/`np`. Erlaubte Importe sind nur `matplotlib`, `numpy` und `math`. Kein `savefig`, kein `show`, kein Dateizugriff. Die `caption` ist LaTeX-Text, also Sonderzeichen maskieren. Verwende nur Zahlen aus der Recherche; andernfalls kennzeichne die Abbildung als „schematisch“.

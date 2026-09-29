@@ -199,13 +199,19 @@ are deterministic, testable and resumable.
   Markdown; short sentences; the host asks the questions a listener would ask.
 
 ### Stage 3 — Handout (optional)
-- Claude writes `handout.md` (key ideas, glossary, sources) and `plots.py`
-  (matplotlib, data taken from the research, clearly marked as illustrative when
-  approximate).
-- **Our code**, not Claude, runs `plots.py` in a subprocess with a timeout, a clean
-  environment (no secrets) and a write-only `figures/` directory. On error, Claude
-  gets one retry with the traceback.
-- Markdown → HTML → PDF via WeasyPrint with a simple print stylesheet.
+- Runs after the script, so it covers everything the conversation points to.
+- Claude writes the **LaTeX body** (key ideas, typeset formulas with explanations,
+  tables, glossary, sources) and matplotlib code for 1–3 figures. The figures use data
+  from the research and are marked "schematisch" when approximate.
+- **Our code**, not Claude, runs the plot code: AST allow-list, isolated
+  subprocess, empty environment, resource limits. Figures are saved as vector PDF.
+  Broken plots get one repair round.
+- The body is checked, since commands for preamble, packages, macros and file
+  access are forbidden. It is wrapped in our fixed preamble and compiled with
+  `pdflatex`:
+  - shell escape off and paranoid file access;
+  - run twice, so the page count resolves.
+- Compile errors go back to Claude with a log excerpt, for up to two repair rounds.
 
 ### Stage 4 — TTS
 - **Edge TTS** (default, free, no key): one clip per line.
@@ -355,7 +361,7 @@ No change to the pipeline is needed. It is just a new job producer and a prompt 
 
 ```
 paper-podcast/
-├── Dockerfile            python:3.12-slim + ffmpeg + WeasyPrint libs + fonts
+├── Dockerfile            python:3.12-slim + ffmpeg + TeX Live (pdflatex)
 ├── docker-compose.yml    one service `app`, volume ./data:/data, port 8000
 ├── .env.example
 ├── app/
