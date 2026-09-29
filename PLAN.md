@@ -63,7 +63,7 @@ no Postgres, no separate worker service.
                 │   Pipeline: research → script → handout → tts → audio  │
                 │        │ Claude Agent SDK      │ edge-tts / Gemini     │
                 │        ▼                       ▼ ffmpeg                │
-                │ Notifiers: Telegram · Email · Webhook                  │
+                │ Notifiers: Telegram                                    │
                 └────────────────────────────┬───────────────────────────┘
                                              ▼
                          /data  (SQLite, episodes/, prompts/, settings)
