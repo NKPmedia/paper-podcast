@@ -1,0 +1,8 @@
+services:
+  app:
+    build: .
+    image: paper-podcast
+    env_file: .env
+    volumes:
+      - ./data:/data
+    restart: "no"

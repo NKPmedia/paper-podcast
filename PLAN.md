@@ -6,7 +6,7 @@ papers); Claude Code researches it and writes a German two-person podcast script
 optional PDF handout with Python-generated plots can be produced alongside.
 You control it from a password-protected website and a Telegram bot.
 
-Status: **planning only** — nothing implemented yet.
+Status: **milestone 1 (core pipeline, CLI + Docker) implemented** — see README.md.
 
 ---
 

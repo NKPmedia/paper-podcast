@@ -1,0 +1,18 @@
+{{ blocks.research }}
+
+# Thema der Episode
+
+{{ topic }}
+{% if extra_instructions %}
+# Zusätzliche Wünsche
+
+{{ extra_instructions }}
+{% endif %}
+# Dein Auftrag
+
+Recherchiere dieses Thema mit WebSearch und WebFetch. Nutze den Skill `paper-research`, um Paper über arXiv, Semantic Scholar oder OpenAlex zu finden.
+
+Liefere am Ende:
+- `title_suggestion`: ein prägnanter deutscher Arbeitstitel für die Episode
+- `notes`: ausführliche Recherche-Notizen auf Deutsch als Markdown. Sie sind die einzige Grundlage für das spätere Skript. Enthalten sein müssen: Fokus der Episode, Kernaussagen, Methoden, konkrete Ergebnisse und Zahlen (jeweils mit Quellenkürzel), Kontext und verwandte Arbeiten, Kritik und Grenzen, gute Beispiele und Analogien, offene Fragen.
+- `sources`: alle verwendeten Quellen mit Titel, Autor*innen, Jahr, URL und warum sie relevant sind

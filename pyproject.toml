@@ -1,0 +1,9 @@
+[project]
+name = "paper-podcast"
+version = "0.1.0"
+description = "Self-hosted server that turns topics and papers into German two-person podcasts using Claude Code"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

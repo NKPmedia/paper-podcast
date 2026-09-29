@@ -1,0 +1,4 @@
+- Zielgruppe: interessierte Laien mit Abitur-Niveau; Fachleute sollen sich trotzdem nicht langweilen.
+- Ton: locker, warm, mit gelegentlichem leichten Humor, aber inhaltlich ernsthaft.
+- Anrede der Hörer*innen: „ihr“.
+- Keine Werbesprache, keine Superlative ohne Beleg.

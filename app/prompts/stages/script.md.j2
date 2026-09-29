@@ -1,0 +1,40 @@
+{{ blocks.personas }}
+
+# Stil
+
+{{ blocks.style }}
+
+# Aufbau
+
+{{ blocks.structure }}
+
+# Regeln für den gesprochenen Text
+
+{{ blocks.script_rules }}
+{% if extra_instructions %}
+# Zusätzliche Wünsche
+
+{{ extra_instructions }}
+{% endif %}
+# Thema
+
+{{ topic }}
+
+# Recherche-Notizen
+
+{{ notes }}
+
+# Quellen
+
+{% for s in sources %}- [{{ loop.index }}] {{ s.title }}{% if s.authors %} — {{ s.authors }}{% endif %}{% if s.year %} ({{ s.year }}){% endif %}
+{% endfor %}
+# Dein Auftrag
+
+Schreibe das vollständige Podcast-Skript.
+
+1. Plane zuerst die Kapitel und was in jedem Kapitel vermittelt werden soll.
+2. Schreibe dann den Dialog. Nutze die Skills `german-podcast-dialogue` und `tts-friendly-text`.
+3. Prüfe das Ergebnis mit dem Skill `fact-check` gegen die Recherche-Notizen und korrigiere es, bevor du antwortest.
+
+Die Länge ist wichtig: etwa {{ target_words }} Wörter gesprochener Text insgesamt.
+Sprecher-IDs: `host` = {{ host_name }}, `expert` = {{ expert_name }}.
