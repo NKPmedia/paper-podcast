@@ -9,7 +9,16 @@
     if (message && !window.confirm(message)) event.preventDefault();
   });
 
-  document.addEventListener("click", (event) => {
+  document.addEventListener("click", async (event) => {
+    const copy = event.target.closest("[data-copy]");
+    if (copy) {
+      const input = document.querySelector(copy.dataset.copy);
+      input.select();
+      try { await navigator.clipboard.writeText(input.value); } catch (e) { document.execCommand("copy"); }
+      copy.textContent = "Kopiert ✓";
+      setTimeout(() => { copy.textContent = "Kopieren"; }, 2000);
+      return;
+    }
     const target = event.target.closest("[data-seek]");
     const player = document.getElementById("player");
     if (target && player) {

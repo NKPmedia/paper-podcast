@@ -28,7 +28,9 @@ from app.models import EpisodeOptions, EpisodeRequest, Length, ResearchDepth
 from app.pipeline import STAGE_ARTIFACTS, prompt_context, stages_for
 from app.prompts import BLOCK_DESCRIPTIONS, PromptStore
 from app.skills import STAGES as SKILL_STAGES
+from app.notifiers import EmailNotifier, WebhookNotifier
 from app.skills import MAX_ZIP_BYTES, SkillError, SkillStore
+from app.web.connectors import base_url, register_api, register_feed
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +82,12 @@ def create_app(
     service = JobService(settings, store, prompts)
     worker = Worker(service, context_factory)
     throttle = LoginThrottle()
+    feed_token = load_or_create_secret(settings.feed_token, settings.data_dir / "feed_token")
+    webhooks = WebhookNotifier(settings, service)
+    worker.listeners.append(webhooks)
+    email = EmailNotifier(settings, service) if settings.smtp_host and settings.email_to else None
+    if email:
+        worker.listeners.append(email)
     tz = ZoneInfo(settings.timezone)
 
     @contextlib.asynccontextmanager
@@ -102,6 +110,9 @@ def create_app(
                 await task
         if telegram:
             await telegram.stop()
+        await webhooks.background.drain()
+        if email:
+            await email.background.drain()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.service = service
@@ -115,6 +126,8 @@ def create_app(
         https_only=settings.cookie_secure,
     )
     app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
+    register_feed(app, settings, service, feed_token)
+    register_api(app, settings, service)
     templates = Jinja2Templates(directory=WEB_DIR / "templates")
 
     def fmt_time(value: str | None) -> str:
@@ -359,6 +372,43 @@ def create_app(
     async def delete(request: Request, job_id: str):
         await job_action(request, job_id, lambda form: service.delete(job_id))
         return redirect("/" if store.get(job_id) is None else f"/episodes/{job_id}")
+
+    # --- connections ------------------------------------------------------------------
+
+    @app.get("/connections")
+    async def connections(request: Request):
+        require_user(request)
+        base = base_url(settings, request)
+        return render(
+            request, "connections.html",
+            feed_url=f"{base}/feed/{feed_token}.xml", base=base,
+            public_base_url=settings.public_base_url,
+            api_enabled=bool(settings.api_token),
+            email_enabled=email is not None, email_to=settings.email_to, email_events=settings.email_events,
+            telegram_enabled=bool(settings.telegram_bot_token),
+            telegram_chats=sorted(settings.telegram_chat_ids),
+        )
+
+    @app.post("/connections/test-email")
+    async def test_email(request: Request, csrf: str = Form("")):
+        require_user(request)
+        check_csrf(request, csrf)
+        if email is None:
+            flash(request, "E-Mail ist nicht eingerichtet.", "error")
+            return redirect("/connections")
+        from email.message import EmailMessage
+
+        message = EmailMessage()
+        message["From"] = settings.smtp_from or settings.smtp_username
+        message["To"] = settings.email_to
+        message["Subject"] = f"Test von {settings.podcast_name}"
+        message.set_content("Die E-Mail-Benachrichtigung funktioniert.")
+        try:
+            await asyncio.to_thread(email.send, message)
+            flash(request, f"Test-E-Mail an {settings.email_to} gesendet.")
+        except Exception as exc:  # show SMTP problems to the user
+            flash(request, f"Senden fehlgeschlagen: {type(exc).__name__}: {exc}", "error")
+        return redirect("/connections")
 
     # --- prompts ------------------------------------------------------------------
 

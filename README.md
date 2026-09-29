@@ -4,9 +4,9 @@ A self-hosted server that turns a topic or paper description into a German
 two-person podcast: Claude Code researches the topic on the web, writes a dialogue
 between a curious host and an expert, and a free online TTS speaks it.
 
-See [PLAN.md](PLAN.md) for the full design. **Current state: milestone 3.** The core
-pipeline, a password-protected web UI with a job queue and the Telegram bot are
-done. The handout and other connectors come next.
+See [PLAN.md](PLAN.md) for the full design. The core pipeline, the handout, the
+password-protected web UI, the Telegram bot, the podcast feed, email and the REST
+API are all implemented.
 
 ## Quick start (Docker)
 
@@ -88,6 +88,31 @@ unless `TELEGRAM_NOTIFY_ALL=false`.
 **Size limit:** Telegram bots can upload at most 50 MB, which is well above a
 25-minute episode. For larger files, point `TELEGRAM_API_BASE_URL` at a
 self-hosted Bot API server.
+
+## Podcast feed, email, REST API
+
+The **Verbindungen** page in the web UI shows how each connection is set up.
+
+- **Podcast feed:** a private RSS feed with iTunes tags, chapters (Podcasting 2.0)
+  and a handout link. Subscribe to it in AntennaPod, Pocket Casts or Apple
+  Podcasts ("follow a show by URL"). The URL contains a secret token.
+- **Email:** a message when an episode is done or failed, with summary, chapters
+  and sources, and the handout attached (the MP3 only if `EMAIL_ATTACH_AUDIO=true`).
+  The page has a button to send a test email.
+- **REST API** (with `API_TOKEN`), using `Authorization: Bearer <token>`:
+
+  | Endpoint | What it does |
+  |---|---|
+  | `POST /api/episodes` | Create an episode: `{"topic", "length", "research_depth", "handout", "extra_instructions", "callback_url"}`. Answers `201` with the episode JSON. |
+  | `GET /api/episodes`, `GET /api/episodes/<id>` | Status, title, chapters, sources, links. |
+  | `GET /api/episodes/<id>/audio`, `…/handout` | The files. |
+  | `POST /api/episodes/<id>/cancel`, `…/retry?from_stage=script` | Cancel, or run again. |
+
+- **Webhooks:** with a `callback_url`, the server POSTs
+  `{"event": "done" | "failed" | "cancelled", "episode": {…}}` when the job ends.
+  - It retries up to 3 times.
+  - The request is signed: `X-Paper-Podcast-Signature: sha256=<HMAC-SHA256 of the
+    body, keyed with API_TOKEN>`.
 
 ## CLI
 

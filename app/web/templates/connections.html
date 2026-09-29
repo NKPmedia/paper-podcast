@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h1>Verbindungen</h1>
+  <p class="muted">So erreichst du deine Episoden außerhalb dieser Seite.</p>
+  {% if not public_base_url %}
+  <div class="flash">Tipp: Setze <code>PUBLIC_BASE_URL</code> (z.B. <code>https://podcast.example.org</code>), damit Links im Feed, in E-Mails und in Telegram auf die richtige Adresse zeigen. Bis dahin wird <code>{{ base }}</code> verwendet.</div>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>🎧 Podcast-Feed</h2>
+  <p>Abonniere diese private Adresse in deiner Podcast-App (z.B. AntennaPod, Pocket Casts, Apple Podcasts über „Sendung per URL folgen“). Neue Episoden erscheinen dort automatisch, mit Kapiteln und Handout-Link.</p>
+  <div class="copy-row"><input readonly value="{{ feed_url }}" id="feed-url"><button type="button" data-copy="#feed-url">Kopieren</button></div>
+  <p class="hint">Die Adresse enthält einen geheimen Schlüssel; gib sie nicht weiter. Neuer Schlüssel: Datei <code>data/feed_token</code> löschen oder <code>FEED_TOKEN</code> setzen und neu starten.</p>
+</section>
+
+<section class="card">
+  <h2>💬 Telegram</h2>
+  {% if telegram_enabled %}
+  <p>Aktiv{% if telegram_chats %} für Chat-ID(s) {{ telegram_chats | join(", ") }}{% else %}, aber noch im Einrichtungsmodus: Schreib dem Bot, er antwortet mit deiner Chat-ID. Trage sie in <code>TELEGRAM_ALLOWED_CHAT_IDS</code> ein{% endif %}.</p>
+  {% else %}
+  <p class="muted">Nicht eingerichtet. Bot bei @BotFather anlegen und <code>TELEGRAM_BOT_TOKEN</code> setzen.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>✉️ E-Mail</h2>
+  {% if email_enabled %}
+  <p>Benachrichtigungen an <b>{{ email_to }}</b> bei: {{ email_events }}. Das Handout wird angehängt.</p>
+  <form method="post" action="/connections/test-email"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Test-E-Mail senden</button></form>
+  {% else %}
+  <p class="muted">Nicht eingerichtet. Setze <code>SMTP_HOST</code>, <code>SMTP_USERNAME</code>, <code>SMTP_PASSWORD</code> und <code>EMAIL_TO</code>.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>🔌 REST-API &amp; Webhooks</h2>
+  {% if api_enabled %}
+  <p>Aktiv. Beispiel (Token aus <code>API_TOKEN</code>):</p>
+  <pre class="preview">curl -X POST {{ base }}/api/episodes \
+  -H "Authorization: Bearer $API_TOKEN" -H "Content-Type: application/json" \
+  -d '{"topic": "Das Mamba-Paper", "length": "kurz", "handout": true,
+       "callback_url": "https://example.org/hook"}'</pre>
+  <p class="hint">Endpunkte: <code>GET /api/episodes</code>, <code>GET /api/episodes/&lt;id&gt;</code>, <code>…/audio</code>, <code>…/handout</code>, <code>POST …/cancel</code>, <code>POST …/retry</code>. Mit <code>callback_url</code> kommt bei Fertigstellung ein signierter Webhook (<code>X-Paper-Podcast-Signature</code>).</p>
+  {% else %}
+  <p class="muted">Deaktiviert. Setze <code>API_TOKEN</code> auf einen langen Zufallswert, z.B. <code>openssl rand -hex 32</code>.</p>
+  {% endif %}
+</section>
+{% endblock %}
