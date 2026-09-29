@@ -128,3 +128,9 @@ nav.files a { padding: 2px 10px; border: 1px solid var(--border); border-radius:
 nav.files a.active { border-color: var(--accent); font-weight: 600; }
 .copy-row { display: flex; gap: 8px; align-items: center; }
 .copy-row input { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; }
+.asset { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.asset:last-child { border-bottom: none; }
+.asset-head { margin-bottom: 6px; }
+.asset audio { max-width: 420px; display: block; margin: 6px 0; }
+.cover-preview { width: 120px; height: 120px; border-radius: 8px; display: block; margin: 6px 0; object-fit: cover; }
+.asset form.row { gap: 8px; align-items: center; }

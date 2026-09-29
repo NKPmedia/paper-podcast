@@ -79,6 +79,13 @@ class Settings(BaseSettings):
     expert_name: str = "Dr. Jonas"
     words_per_minute: int = 140
 
+    # Speech: auto = Gemini if GEMINI_API_KEY is set (Edge as fallback), else Edge
+    tts_provider: str = "auto"  # auto | edge | gemini
+    gemini_api_key: str = ""
+    gemini_tts_model: str = "gemini-2.5-flash-preview-tts"
+    gemini_voice_host: str = "Kore"
+    gemini_voice_expert: str = "Charon"
+
     # Edge TTS
     edge_voice_host: str = "de-DE-SeraphinaMultilingualNeural"
     edge_voice_expert: str = "de-DE-FlorianMultilingualNeural"

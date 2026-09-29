@@ -182,3 +182,36 @@ def test_email_notifications(settings, monkeypatch):
                                     "csrf": re.search(r'name="csrf" value="([^"]+)"', client.get("/login").text).group(1)})
         page = client.get("/connections")
         assert "/feed/" in page.text and "me@example" in page.text and "Test-E-Mail senden" in page.text
+
+
+def test_asset_uploads(settings):
+    import io
+    import subprocess
+
+    from PIL import Image
+
+    settings, app = make_app(settings)
+    with TestClient(app) as client:
+        token = re.search(r'name="csrf" value="([^"]+)"', client.get("/login").text).group(1)
+        client.post("/login", data={"password": "pw-" + "y" * 12, "csrf": token})
+        token = re.search(r'name="csrf" value="([^"]+)"', client.get("/connections").text).group(1)
+
+        image = io.BytesIO()
+        Image.new("RGB", (800, 600), "red").save(image, "PNG")
+        client.post("/assets/cover", data={"csrf": token}, files={"file": ("c.png", image.getvalue())})
+        cover = Image.open(settings.assets_dir / "cover.jpg")
+        assert cover.size == (1400, 1400) and cover.format == "JPEG"
+
+        wav = subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=duration=1", "-f", "wav", "-"],
+                             capture_output=True, check=True).stdout
+        client.post("/assets/intro", data={"csrf": token}, files={"file": ("i.wav", wav)})
+        assert (settings.assets_dir / "intro.mp3").stat().st_size > 1000
+
+        page = client.post("/assets/outro", data={"csrf": token}, files={"file": ("x.mp3", b"not audio")})
+        assert "Keine gültige Audiodatei" in page.text and not (settings.assets_dir / "outro.mp3").exists()
+        page = client.post("/assets/cover", data={"csrf": token}, files={"file": ("x.png", b"nope")})
+        assert "Kein gültiges Bild" in page.text
+
+        assert "Edge TTS" in page.text and client.get("/assets/cover").headers["content-type"] == "image/jpeg"
+        client.post("/assets/intro/delete", data={"csrf": token})
+        assert not (settings.assets_dir / "intro.mp3").exists()

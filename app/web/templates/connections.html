@@ -8,6 +8,32 @@
   {% endif %}
 </section>
 
+<section class="card" id="klang">
+  <h2>🎚️ Klang &amp; Cover</h2>
+  <p>Stimmen: {{ tts }}.</p>
+  {% for kind, label, accept, hint in [
+      ("intro", "Intro-Jingle", "audio/*", "Wird vor jede Episode gesetzt (max. 60 s)."),
+      ("outro", "Outro-Jingle", "audio/*", "Wird ans Ende jeder Episode gesetzt (max. 60 s)."),
+      ("cover", "Cover-Bild", "image/*", "Quadratisch zugeschnitten, 1400 × 1400 px; für Feed und MP3.")] %}
+  <div class="asset">
+    <div class="asset-head"><strong>{{ label }}</strong> <span class="hint">{{ hint }}</span></div>
+    {% if assets[kind] %}
+      {% if kind == "cover" %}<img src="/assets/cover" alt="Cover" class="cover-preview">{% else %}<audio controls preload="none" src="/assets/{{ kind }}"></audio>{% endif %}
+    {% endif %}
+    <div class="row">
+      <form method="post" action="/assets/{{ kind }}" enctype="multipart/form-data" class="row">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="file" name="file" accept="{{ accept }}" required>
+        <button>{% if assets[kind] %}Ersetzen{% else %}Hochladen{% endif %}</button>
+      </form>
+      {% if assets[kind] %}
+      <form method="post" action="/assets/{{ kind }}/delete"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Entfernen</button></form>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</section>
+
 <section class="card">
   <h2>🎧 Podcast-Feed</h2>
   <p>Abonniere diese private Adresse in deiner Podcast-App (z.B. AntennaPod, Pocket Casts, Apple Podcasts über „Sendung per URL folgen“). Neue Episoden erscheinen dort automatisch, mit Kapiteln und Handout-Link.</p>

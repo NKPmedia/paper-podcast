@@ -20,6 +20,8 @@ from jinja2 import Environment, StrictUndefined, TemplateSyntaxError, UndefinedE
 from markdown_it import MarkdownIt
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.assets import FILES as ASSET_FILES
+from app.assets import MAX_UPLOAD_BYTES, AssetError, save_cover, save_jingle
 from app.auth import LoginThrottle, load_or_create_secret, verify_password
 from app.config import Settings, get_settings
 from app.db import JobStore
@@ -387,7 +389,54 @@ def create_app(
             email_enabled=email is not None, email_to=settings.email_to, email_events=settings.email_events,
             telegram_enabled=bool(settings.telegram_bot_token),
             telegram_chats=sorted(settings.telegram_chat_ids),
+            assets={kind: (settings.assets_dir / name).exists() for kind, name in ASSET_FILES.items()},
+            tts=tts_description(),
         )
+
+    def tts_description() -> str:
+        uses_gemini = settings.tts_provider == "gemini" or (settings.tts_provider == "auto" and settings.gemini_api_key)
+        if uses_gemini and settings.gemini_api_key:
+            return (f"Gemini ({settings.gemini_tts_model}, Stimmen {settings.gemini_voice_host} / "
+                    f"{settings.gemini_voice_expert}), bei erschöpftem Kontingent automatisch Edge")
+        return f"Edge TTS (Stimmen {settings.edge_voice_host} / {settings.edge_voice_expert})"
+
+    @app.post("/assets/{kind}")
+    async def upload_asset(request: Request, kind: str, file: UploadFile, csrf: str = Form("")):
+        require_user(request)
+        check_csrf(request, csrf)
+        if kind not in ASSET_FILES:
+            return Response(status_code=404)
+        data = await file.read(MAX_UPLOAD_BYTES + 1)
+        target = settings.assets_dir / ASSET_FILES[kind]
+        try:
+            if len(data) > MAX_UPLOAD_BYTES:
+                raise AssetError("Datei zu groß (max. 20 MB)")
+            if kind == "cover":
+                await asyncio.to_thread(save_cover, data, target)
+                flash(request, "Cover gespeichert. Es erscheint im Feed und in neuen Episoden.")
+            else:
+                seconds = await asyncio.to_thread(save_jingle, data, target)
+                flash(request, f"{kind.capitalize()} gespeichert ({seconds:.1f} s). Gilt für neue Episoden.")
+        except AssetError as exc:
+            flash(request, str(exc), "error")
+        return redirect("/connections#klang")
+
+    @app.post("/assets/{kind}/delete")
+    async def delete_asset(request: Request, kind: str, csrf: str = Form("")):
+        require_user(request)
+        check_csrf(request, csrf)
+        if kind in ASSET_FILES:
+            (settings.assets_dir / ASSET_FILES[kind]).unlink(missing_ok=True)
+            flash(request, "Entfernt.")
+        return redirect("/connections#klang")
+
+    @app.get("/assets/{kind}")
+    async def get_asset(request: Request, kind: str):
+        require_user(request)
+        path = settings.assets_dir / ASSET_FILES.get(kind, "-")
+        if kind not in ASSET_FILES or not path.exists():
+            return Response(status_code=404)
+        return FileResponse(path, media_type="image/jpeg" if kind == "cover" else "audio/mpeg")
 
     @app.post("/connections/test-email")
     async def test_email(request: Request, csrf: str = Form("")):

@@ -27,5 +27,5 @@ async def run(ctx) -> None:
     manifest = [
         {"file": c.path.name, "chapter": c.chapter, "speaker": c.speaker} for c in clips
     ]
-    ctx.log.write("tts", provider=ctx.tts.name, clips=len(clips))
+    ctx.log.write("tts", provider=ctx.tts.name, clips=len(clips), note=getattr(ctx.tts, "note", ""))
     (clips_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
