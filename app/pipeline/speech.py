@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import json
+import shutil
 
 from app.models import Script
 
 NAME = "tts"
 DESCRIPTION = "Sprachausgabe wird erzeugt"
+
+
+def reset(ctx) -> None:
+    shutil.rmtree(ctx.path("clips"), ignore_errors=True)
 
 
 def is_done(ctx) -> bool:

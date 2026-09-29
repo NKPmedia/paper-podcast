@@ -3,16 +3,22 @@ import subprocess
 
 import pytest
 
-from app.models import EpisodeOptions, EpisodeRequest, Length, Script
+from app.models import EpisodeOptions, EpisodeRequest, Length, ResearchDepth, Script
 from app.pipeline import create_job, load_context, run_pipeline
 from app.pipeline.script import validate
 from app.prompts import PromptStore
-from tests.conftest import RESEARCH, FakeClaude, FakeTTS, make_script
+from tests.conftest import FakeClaude, FakeTTS, default_responses, make_script, mock_downloads
 
 
 def new_job(settings, **opts):
     request = EpisodeRequest(topic="Festkörperbatterien", options=EpisodeOptions(length=Length.kurz, **opts))
     return create_job(settings, request, PromptStore(settings.prompts_dir))
+
+
+def context(settings, job, claude, tts=None):
+    ctx = load_context(job, settings, claude=claude, tts=tts or FakeTTS())
+    ctx.download_options = mock_downloads()
+    return ctx
 
 
 def test_validate_script():
@@ -29,23 +35,28 @@ def test_validate_script():
 
 async def test_full_pipeline(settings):
     # target: 5 min * 10 wpm = 50 words; script: 3 chapters * 4 lines * 4 words = 48
-    claude = FakeClaude([RESEARCH, make_script(words_per_line=4)])
+    claude = FakeClaude(default_responses())
     tts = FakeTTS()
-    job = new_job(settings, block_overrides={"style": "Mit Humor."})
-    ctx = load_context(job, settings, claude=claude, tts=tts)
+    job = new_job(settings, research_depth=ResearchDepth.quick, block_overrides={"style": "Mit Humor."})
+    ctx = context(settings, job, claude, tts)
 
     stages = []
     mp3 = await run_pipeline(ctx, progress=lambda s, d: stages.append(s))
 
-    assert stages == ["research", "script", "tts", "audio"]
+    assert [s for i, s in enumerate(stages) if i == 0 or stages[i - 1] != s] == ["research", "script", "tts", "audio"]
     assert mp3.exists() and mp3.stat().st_size > 1000
     assert (job / "research.md").read_text().startswith("# Testthema")
     assert json.loads((job / "sources.json").read_text())[0]["title"] == "Ein Paper"
+    assert (job / "papers" / "arxiv_2401.00001.md").exists()
 
-    research_call, script_call = claude.calls
-    assert research_call.tools == ["WebSearch", "WebFetch", "Read"]
-    assert research_call.skills == ["paper-research"]
-    assert "Festkörperbatterien" in research_call.prompt
+    (scout,) = claude.calls_for("ScoutResult")  # quick research → one scout
+    assert scout.model == "haiku" and scout.tools == ["WebSearch", "WebFetch", "Read"]
+    assert scout.skills == ["paper-research"]
+    assert "Festkörperbatterien" in scout.prompt
+    (read,) = claude.calls_for("ResearchResult")
+    assert read.model == "opus" and "papers/arxiv_2401.00001.md" in read.prompt
+    (script_call,) = claude.calls_for("Script")
+    assert script_call.model == "opus"
     assert script_call.skills == ["german-podcast-dialogue", "tts-friendly-text", "fact-check"]
     assert "Ergebnis A" in script_call.prompt and "Mit Humor." in script_call.prompt
     assert (job / ".claude/skills/fact-check/SKILL.md").exists()
@@ -70,28 +81,33 @@ async def test_full_pipeline(settings):
 
 
 async def test_script_retry_with_feedback(settings):
-    too_short = make_script(words_per_line=1)
-    claude = FakeClaude([RESEARCH, too_short, make_script(words_per_line=4)])
-    job = new_job(settings)
-    ctx = load_context(job, settings, claude=claude, tts=FakeTTS())
-    await run_pipeline(ctx, from_stage=None)
-    retry = claude.calls[2]
-    assert retry.resume == "session-2"
+    responses = default_responses()
+    responses["Script"] = [make_script(words_per_line=1), make_script(words_per_line=4)]
+    claude = FakeClaude(responses)
+    ctx = context(settings, new_job(settings), claude)
+    await run_pipeline(ctx)
+    first, retry = claude.calls_for("Script")
+    assert retry.resume == f"session-{claude.calls.index(first) + 1}"
     assert "zu kurz" in retry.prompt
 
 
 async def test_from_stage_reruns_later_stages(settings):
-    claude = FakeClaude([RESEARCH, make_script(words_per_line=4), make_script(words_per_line=4)])
+    responses = default_responses()
+    responses["Script"] = [make_script(words_per_line=4)] * 2
+    claude = FakeClaude(responses)
     tts = FakeTTS()
     job = new_job(settings)
-    ctx = load_context(job, settings, claude=claude, tts=tts)
+    ctx = context(settings, job, claude, tts)
     await run_pipeline(ctx)
+    stale = job / "clips" / "stale.mp3"
+    stale.write_bytes(b"x")
     await run_pipeline(ctx, from_stage="script")
-    assert len(claude.calls) == 3 and tts.calls == 2
+    assert len(claude.calls_for("Script")) == 2 and len(claude.calls_for("ScoutResult")) == 3
+    assert tts.calls == 2 and not stale.exists()
 
 
 async def test_unknown_stage(settings):
-    ctx = load_context(new_job(settings), settings, claude=FakeClaude([]), tts=FakeTTS())
+    ctx = context(settings, new_job(settings), FakeClaude({}))
     with pytest.raises(ValueError):
         await run_pipeline(ctx, from_stage="nope")
 

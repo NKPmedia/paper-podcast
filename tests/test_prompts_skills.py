@@ -35,8 +35,10 @@ def _ctx(settings):
 
 def test_stage_templates_render(settings):
     blocks = PromptStore(settings.prompts_dir).resolve(_ctx(settings))
-    text = render_stage("research", blocks=blocks, topic="Quantencomputer", extra_instructions="")
-    assert "Quantencomputer" in text and "paper-research" in text
+    text = render_stage(
+        "scout", blocks=blocks, topic="Quantencomputer", extra_instructions="", angle="Kritik", count=10
+    )
+    assert "Quantencomputer" in text and "paper-research" in text and "Kritik" in text
 
 
 def test_skills_discovery_override_and_install(settings, tmp_path):

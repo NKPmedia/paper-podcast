@@ -92,7 +92,7 @@ async def run(ctx) -> None:
                 system_append=ctx.blocks["system"],
                 output_schema=json_schema(Script),
                 max_turns=ctx.settings.claude_max_turns_script,
-                model=ctx.settings.claude_model,
+                model=ctx.settings.script_model,
                 resume=session_id,
             )
         )

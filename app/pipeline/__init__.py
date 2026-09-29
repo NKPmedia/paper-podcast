@@ -46,10 +46,19 @@ class EpisodeContext:
     skills: SkillStore
     claude: ClaudeRunner
     tts: TTSProvider
+    # Extra keyword arguments for app.papers.download_all (tests inject an HTTP client).
+    download_options: dict = field(default_factory=dict)
+    progress: ProgressCallback | None = None
     log: EpisodeLog = field(init=False)
 
     def __post_init__(self):
         self.log = EpisodeLog(self.job_dir / "log.jsonl")
+
+    async def notify(self, stage: str, message: str) -> None:
+        if self.progress:
+            maybe = self.progress(stage, message)
+            if maybe is not None:
+                await maybe
 
     def path(self, name: str) -> Path:
         return self.job_dir / name
@@ -127,16 +136,16 @@ async def run_pipeline(
 ) -> Path:
     if from_stage is not None and from_stage not in STAGE_NAMES:
         raise ValueError(f"Unknown stage {from_stage!r}; choose from {STAGE_NAMES}")
+    ctx.progress = progress
     force = False
     for stage in _stages():
         force = force or stage.NAME == from_stage
         if not force and stage.is_done(ctx):
             ctx.log.write("stage_skipped", stage=stage.NAME)
             continue
-        if progress:
-            maybe = progress(stage.NAME, stage.DESCRIPTION)
-            if maybe is not None:
-                await maybe
+        if force and hasattr(stage, "reset"):
+            stage.reset(ctx)  # drop intermediate artifacts so nothing stale is reused
+        await ctx.notify(stage.NAME, stage.DESCRIPTION)
         ctx.log.write("stage_start", stage=stage.NAME)
         started = time.monotonic()
         try:

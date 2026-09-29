@@ -54,6 +54,40 @@ class Source(BaseModel):
     why_relevant: str = ""
 
 
+class Candidate(BaseModel):
+    """A paper or source proposed by a scout."""
+
+    title: str
+    authors: str = ""
+    year: str = ""
+    arxiv_id: str = Field(default="", description="z.B. 1706.03762, leer wenn nicht auf arXiv")
+    doi: str = ""
+    url: str = Field(default="", description="Landing page oder Abstract-Seite")
+    pdf_url: str = Field(default="", description="Direkter Link zum Volltext-PDF, falls bekannt")
+    score: float = Field(ge=0, le=10, description="Relevanz für die Episode, 0 bis 10")
+    reason: str = Field(description="Ein Satz, warum die Quelle relevant ist")
+    quote: str = Field(default="", description="Wörtliches Zitat aus dem Abstract")
+
+
+class ScoutResult(BaseModel):
+    candidates: list[Candidate]
+
+
+class RankedCandidate(Candidate):
+    id: str  # stable key, e.g. "arxiv:1706.03762"
+    found_by: list[str] = Field(default_factory=list)  # scout angles
+
+
+class SelectedPaper(BaseModel):
+    id: str = Field(description="ID aus der Kandidatenliste, z.B. arxiv:1706.03762")
+    reason: str
+
+
+class Selection(BaseModel):
+    focus: str = Field(description="Ein bis zwei Sätze: Fokus und roter Faden der Episode")
+    selected: list[SelectedPaper]
+
+
 class ResearchResult(BaseModel):
     title_suggestion: str = Field(description="Arbeitstitel für die Episode")
     notes: str = Field(description="Ausführliche Recherche-Notizen als Markdown")

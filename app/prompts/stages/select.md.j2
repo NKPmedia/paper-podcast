@@ -1,0 +1,22 @@
+Du bereitest eine Podcast-Episode vor. Scouts haben mögliche Quellen gefunden und bewertet. Wähle aus, welche Quellen im Volltext gelesen werden.
+
+# Thema der Episode
+
+{{ topic }}
+{% if extra_instructions %}
+# Zusätzliche Wünsche
+
+{{ extra_instructions }}
+{% endif %}
+# Kandidaten (nach Scout-Bewertung sortiert)
+
+{% for c in candidates %}- **{{ c.id }}**: {{ c.title }}{% if c.authors %} ({{ c.authors }}{% if c.year %}, {{ c.year }}{% endif %}){% elif c.year %} ({{ c.year }}){% endif %}
+  Bewertung {{ c.score }}/10, gefunden von: {{ c.found_by | join(", ") }}. {{ c.reason }}{% if c.quote %}
+  Zitat: „{{ c.quote }}“{% endif %}
+{% endfor %}
+# Dein Auftrag
+
+- Lege den Fokus der Episode fest: ein klarer roter Faden statt eines Sammelsuriums.
+- Wähle bis zu {{ count }} Quellen, die zusammen das Thema am besten abdecken: die Kernarbeit(en), dazu Kontext, Kritik oder Folgearbeiten. Die Scout-Bewertung ist nur ein Hinweis; wähle auch weiter unten in der Liste, wenn es inhaltlich passt.
+- Bevorzuge Quellen mit Volltext (arXiv-ID, PDF-Link oder DOI).
+- Verwende exakt die IDs aus der Liste.

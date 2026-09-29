@@ -144,7 +144,7 @@ are deterministic, testable and resumable.
 - Saved as `papers/<id>.md` along with `papers/index.json`; failures are recorded
   there.
 
-**1d. Deep reading and notes** (main model, same session as 1b, resumed)
+**1d. Deep reading and notes** (main model; a fresh call that is given the selection and its reasons, which keeps it resumable)
 - The main agent `Read`s **every** downloaded paper in full from the job
   directory. These are local files, so there is no WebFetch summarization and the
   text arrives unaltered.

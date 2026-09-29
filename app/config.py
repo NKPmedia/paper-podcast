@@ -5,7 +5,6 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 APP_DIR = Path(__file__).resolve().parent
@@ -28,12 +27,16 @@ class Settings(BaseSettings):
 
     data_dir: Path = Path("/data")
 
-    # Claude
-    claude_model: str | None = None  # None = Claude Code default
-    claude_max_turns_research: dict[str, int] = Field(
-        default={"quick": 15, "medium": 30, "deep": 60}
-    )
+    # Claude models per role: alias (haiku, sonnet, opus) or a full model ID
+    research_scout_model: str = "haiku"
+    research_main_model: str = "opus"
+    script_model: str = "opus"
     claude_max_turns_script: int = 20
+
+    # Paper downloads (full texts for the main research agent)
+    download_max_mb: int = 20
+    download_timeout_s: int = 60
+    paper_max_chars: int = 250_000
 
     # Podcast defaults
     podcast_name: str = "Paper Podcast"

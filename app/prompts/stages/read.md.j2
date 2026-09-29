@@ -1,0 +1,36 @@
+{{ blocks.research }}
+
+# Thema der Episode
+
+{{ topic }}
+{% if extra_instructions %}
+# Zusätzliche Wünsche
+
+{{ extra_instructions }}
+{% endif %}
+# Fokus
+
+{{ focus }}
+
+# Ausgewählte Quellen
+
+{% for sel, cand, paper in selected %}## {{ cand.title }}
+- ID: {{ cand.id }}{% if cand.authors %}, {{ cand.authors }}{% endif %}{% if cand.year %} ({{ cand.year }}){% endif %}
+- Warum ausgewählt: {{ sel.reason }}
+{% if paper.file %}- Volltext: `{{ paper.file }}` ({{ paper.lines }} Zeilen{% if paper.truncated %}, gekürzt{% endif %}; Quelle {{ paper.source_url }})
+{% else %}- Volltext konnte nicht geladen werden. Nutze WebFetch mit gezielten Fragen: {{ cand.url or cand.pdf_url or ("https://arxiv.org/abs/" ~ cand.arxiv_id if cand.arxiv_id else "(URL suchen)") }}
+{% endif %}
+{% endfor %}{% if others %}
+# Weitere Kandidaten (nur bei Bedarf)
+
+{% for c in others %}- {{ c.id }}: {{ c.title }}{% if c.year %} ({{ c.year }}){% endif %}{% if c.url %}, {{ c.url }}{% endif %}
+{% endfor %}{% endif %}
+# Dein Auftrag
+
+1. **Lies jede Volltext-Datei vollständig** mit dem Read-Tool. Lange Dateien liest du abschnittsweise (Parameter `offset` und `limit`, zum Beispiel 800 Zeilen pro Aufruf), bis du am Ende angekommen bist. Überspringe nichts außer Literaturverzeichnis und Anhängen ohne Bezug zum Thema.
+2. Baue dir ein tiefes Verständnis auf: Fragestellung, Methode, Ergebnisse mit Zahlen, Grenzen, Zusammenhänge zwischen den Arbeiten.
+3. Schließe verbleibende Lücken gezielt mit WebSearch oder WebFetch, zum Beispiel aktuelle Einordnung, Kritik oder Anwendungen.
+4. Liefere:
+   - `title_suggestion`: ein prägnanter deutscher Arbeitstitel
+   - `notes`: ausführliche Recherche-Notizen auf Deutsch als Markdown, die einzige Grundlage für das Skript. Enthalten sein müssen: Fokus, Kernaussagen, Methoden verständlich erklärt, konkrete Ergebnisse und Zahlen (jeweils mit Quellenkürzel wie [Vaswani 2017]), Kontext und verwandte Arbeiten, Kritik und Grenzen, gute Beispiele und Analogien für Laien, offene Fragen. Wichtige Formeln hältst du fest, zusammen mit einer Erklärung in Worten, was sie bedeuten.
+   - `sources`: alle tatsächlich verwendeten Quellen mit Titel, Autor*innen, Jahr, URL und Relevanz
