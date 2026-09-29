@@ -127,6 +127,13 @@ def _stages():
 
 
 STAGE_NAMES = ["research", "script", "tts", "audio"]
+# The file whose existence marks a stage as finished.
+STAGE_ARTIFACTS = {
+    "research": "research.md",
+    "script": "script.json",
+    "tts": "clips/manifest.json",
+    "audio": "episode.mp3",
+}
 
 
 async def run_pipeline(

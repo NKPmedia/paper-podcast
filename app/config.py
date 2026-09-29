@@ -33,6 +33,18 @@ class Settings(BaseSettings):
     cookie_secure: bool = True  # set false only for plain-http testing on a LAN
     port: int = 8000
     timezone: str = "Europe/Berlin"
+    public_base_url: str = ""  # e.g. https://podcast.example.org, used for links in messages
+
+    # Telegram bot (optional)
+    telegram_bot_token: str = ""
+    telegram_allowed_chat_ids: str = ""  # comma-separated; empty = setup mode (bot replies with your ID)
+    telegram_notify_all: bool = True  # also announce and send episodes started from the web UI
+    # Optional self-hosted Bot API server (lifts the 50 MB upload limit), e.g. http://telegram-bot-api:8081
+    telegram_api_base_url: str = ""
+
+    @property
+    def telegram_chat_ids(self) -> set[int]:
+        return {int(x) for x in self.telegram_allowed_chat_ids.replace(" ", "").split(",") if x}
 
     # Claude models per role: alias (haiku, sonnet, opus) or a full model ID
     research_scout_model: str = "haiku"

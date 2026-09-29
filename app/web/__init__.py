@@ -25,7 +25,7 @@ from app.config import Settings, get_settings
 from app.db import JobStore
 from app.jobs import ContextFactory, JobError, JobService, Worker
 from app.models import EpisodeOptions, EpisodeRequest, Length, ResearchDepth
-from app.pipeline import STAGE_NAMES, prompt_context
+from app.pipeline import STAGE_ARTIFACTS, STAGE_NAMES, prompt_context
 from app.prompts import BLOCK_DESCRIPTIONS, PromptStore
 from app.skills import STAGES as SKILL_STAGES
 from app.skills import MAX_ZIP_BYTES, SkillError, SkillStore
@@ -34,12 +34,6 @@ log = logging.getLogger(__name__)
 
 WEB_DIR = Path(__file__).resolve().parent
 STAGE_LABELS = {"research": "Recherche", "script": "Skript", "tts": "Sprachausgabe", "audio": "Audio"}
-STAGE_ARTIFACTS = {
-    "research": "research.md",
-    "script": "script.json",
-    "tts": "clips/manifest.json",
-    "audio": "episode.mp3",
-}
 STATUS_LABELS = {
     "queued": "Wartet",
     "running": "Läuft",
@@ -90,12 +84,24 @@ def create_app(
 
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI):
+        telegram = None
+        if start_worker and settings.telegram_bot_token:
+            from app.telegram_bot import TelegramRunner
+
+            telegram = TelegramRunner(settings, service, worker)
+            try:
+                await telegram.start()
+            except Exception:  # bad token, no network: keep the web UI running
+                log.exception("Telegram bot could not start")
+                telegram = None
         task = asyncio.create_task(worker.run_forever()) if start_worker else None
         yield
         if task:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        if telegram:
+            await telegram.stop()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.service = service

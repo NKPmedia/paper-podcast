@@ -12,7 +12,7 @@ import json
 import logging
 import shutil
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Protocol
 
 from app.config import Settings
 from app.db import Job, JobStore, now
@@ -23,6 +23,12 @@ from app.prompts import PromptStore
 log = logging.getLogger(__name__)
 
 ContextFactory = Callable[[Path], EpisodeContext]
+
+
+class JobListener(Protocol):
+    """Notified about job events: 'started', 'progress', 'done', 'failed', 'cancelled'."""
+
+    async def job_event(self, job: Job, event: str) -> None: ...
 
 
 def episode_cost(job_dir: Path) -> float | None:
@@ -105,7 +111,19 @@ class Worker:
         self._wake_event = asyncio.Event()
         self._current: tuple[str, asyncio.Task] | None = None
         self._cancel_requested: set[str] = set()
+        self.listeners: list[JobListener] = []
         service.worker = self
+
+    async def _emit(self, job_id: str, event: str) -> None:
+        job = self.store.get(job_id)
+        for listener in self.listeners:
+            try:
+                await listener.job_event(job, event)
+            except Exception:  # a broken notifier must never break the job
+                log.exception("Listener %r failed on %s for %s", listener, event, job_id)
+
+    def current_job_id(self) -> str | None:
+        return self._current[0] if self._current else None
 
     def wake(self) -> None:
         self._wake_event.set()
@@ -135,7 +153,9 @@ class Worker:
 
         async def progress(stage: str, message: str) -> None:
             self.store.update(job.id, stage=stage, message=message)
+            await self._emit(job.id, "progress")
 
+        await self._emit(job.id, "started")
         task = None
         try:
             ctx = self.context_factory(job_dir)
@@ -149,6 +169,8 @@ class Worker:
                     job.id, status="cancelled", message="Abgebrochen", from_stage=None,
                     finished_at=now(), cost_usd=episode_cost(job_dir),
                 )
+                self._current = None
+                await self._emit(job.id, "cancelled")
                 return
             # Server shutdown: leave the job 'running'; it is requeued on the next start.
             if task and not task.done():
@@ -160,6 +182,8 @@ class Worker:
                 job.id, status="failed", error=f"{type(exc).__name__}: {exc}"[:4000],
                 from_stage=None, finished_at=now(), cost_usd=episode_cost(job_dir),
             )
+            self._current = None
+            await self._emit(job.id, "failed")
             return
         finally:
             self._current = None
@@ -170,3 +194,4 @@ class Worker:
             title=episode["title"], duration_s=episode["duration_seconds"],
             finished_at=now(), cost_usd=episode_cost(job_dir),
         )
+        await self._emit(job.id, "done")

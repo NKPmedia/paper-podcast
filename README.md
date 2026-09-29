@@ -4,9 +4,9 @@ A self-hosted server that turns a topic or paper description into a German
 two-person podcast: Claude Code researches the topic on the web, writes a dialogue
 between a curious host and an expert, and a free online TTS speaks it.
 
-See [PLAN.md](PLAN.md) for the full design. **Current state: milestone 2.** The core
-pipeline and a password-protected web UI with a job queue are done. The Telegram
-bot, handout and other connectors come next.
+See [PLAN.md](PLAN.md) for the full design. **Current state: milestone 3.** The core
+pipeline, a password-protected web UI with a job queue and the Telegram bot are
+done. The handout and other connectors come next.
 
 ## Quick start (Docker)
 
@@ -51,6 +51,43 @@ as `episode.mp3`.
 - All forms carry CSRF tokens.
 - Session cookies are `SameSite=Lax`.
 - Research notes are rendered without raw HTML.
+- Telegram: only chats listed in `TELEGRAM_ALLOWED_CHAT_IDS` are served. The bot
+  token is removed from Claude's environment like every other secret.
+
+## Telegram bot
+
+**Setup:**
+1. Create a bot with [@BotFather](https://t.me/BotFather) and put its token into
+   `.env` as `TELEGRAM_BOT_TOKEN`.
+2. Leave `TELEGRAM_ALLOWED_CHAT_IDS` empty and restart the container.
+3. Write anything to your bot. It replies with your chat ID.
+4. Put the ID into `TELEGRAM_ALLOWED_CHAT_IDS` and restart again. From then on the
+   bot ignores every other chat.
+
+The bot uses long polling, so it needs no inbound port or webhook.
+
+| Command | What it does |
+|---|---|
+| any text, or `/neu <Thema>` | Starts a new episode. Buttons for length and research depth, then **▶ Starten**. |
+| `/aktuell` | Live status of running or waiting jobs, then the newest finished episode (audio, chapters, sources). |
+| `/liste`, `/folge <Nr>` | The last 10 episodes; send one of them. |
+| `/status` | The queue. |
+| `/abbrechen` | Cancel the running job. |
+
+**While an episode runs:**
+- The bot edits one status message as the stages advance, e.g.
+  ✓ Recherche · ▶ **Skript** · Sprache · Audio.
+- The message has an **✖ Abbrechen** button.
+- When the episode is done, the MP3 arrives as an audio message with title and
+  summary, followed by chapters and sources.
+- If a job fails, the message shows the error and a **🔁 Fortsetzen** button.
+
+**Episodes started from the web UI** are announced and delivered the same way
+unless `TELEGRAM_NOTIFY_ALL=false`.
+
+**Size limit:** Telegram bots can upload at most 50 MB, which is well above a
+25-minute episode. For larger files, point `TELEGRAM_API_BASE_URL` at a
+self-hosted Bot API server.
 
 ## CLI
 
