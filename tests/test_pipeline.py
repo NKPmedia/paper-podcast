@@ -94,3 +94,34 @@ async def test_unknown_stage(settings):
     ctx = load_context(new_job(settings), settings, claude=FakeClaude([]), tts=FakeTTS())
     with pytest.raises(ValueError):
         await run_pipeline(ctx, from_stage="nope")
+
+
+def _with_line(text: str, **extra) -> Script:
+    data = make_script(words_per_line=4)
+    data["chapters"][0]["lines"][1]["text"] = text
+    data.update(extra)
+    return Script.model_validate(data)
+
+
+@pytest.mark.parametrize("text", [
+    "Die Attention ist softmax(QK^T / sqrt(d)) V.",
+    "Es gilt E = mc².",
+    "Man summiert x_i über alle i.",
+    "Das ist \\frac{a}{b} im Prinzip.",
+])
+def test_written_formulas_are_rejected(text):
+    problems = validate(_with_line(text), target_words=50)
+    assert any("Formel" in p for p in problems)
+
+
+def test_spoken_explanation_is_fine():
+    script = _with_line("Doppelt so langer Text heißt viermal so viel Rechenarbeit.")
+    assert validate(script, target_words=script.word_count) == []
+
+
+def test_handout_references_need_a_handout():
+    script = _with_line("Die genaue Formel findet ihr im Handout.", handout_items=["Attention-Formel"])
+    problems = validate(script, target_words=script.word_count, handout=False)
+    assert any("verweist auf ein Handout" in p for p in problems)
+    assert any("handout_items" in p for p in problems)
+    assert validate(script, target_words=script.word_count, handout=True) == []

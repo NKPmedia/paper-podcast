@@ -70,6 +70,7 @@ def prompt_context(settings: Settings, request: EpisodeRequest) -> dict:
         "minutes": minutes,
         "target_words": minutes * settings.words_per_minute,
         "research_depth": request.options.research_depth.value,
+        "handout": request.options.handout,
     }
 
 

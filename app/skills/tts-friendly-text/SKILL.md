@@ -19,8 +19,13 @@ The script is read verbatim by a speech synthesizer, so write exactly what shoul
 - "Kilometer pro Stunde", "Grad Celsius", "Milliampere-Stunden", "Nanometer": always spelled out.
 - No symbols: "etwa" instead of "~", "mal" instead of "×", "größer als" instead of ">".
 
-## Formulas
-Describe them instead of reading them out: "Die Energie ist gleich Masse mal Lichtgeschwindigkeit zum Quadrat", or better, explain the idea in words.
+## Formulas: never read them out
+Listeners cannot see a formula, and a spoken formula of any length is lost immediately.
+- Explain what the formula *says* and *why it matters*, in words and with an example:
+  "Der Aufwand wächst quadratisch: doppelt so viel Text, viermal so viel Rechenarbeit."
+- Only very short, widely known relations may be named ("E gleich m c Quadrat").
+- Anything longer, such as fractions, sums, indices, matrices or Greek-letter chains, never appears in the script.
+- If there is a handout, refer to it ("Die genaue Formel steht im Handout") and list the formula in `handout_items`. Without a handout, do not point listeners to formulas they cannot look up.
 
 ## Abbreviations
 - Common initialisms are read letter by letter anyway: KI, DNA, USA, EU.

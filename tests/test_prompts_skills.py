@@ -66,3 +66,14 @@ def test_stage_skill_config_file(settings):
     store = SkillStore(settings.skills_dir, settings.data_dir / "skills.json")
     assert store.stage_skills("script") == ["fact-check"]
     assert store.stage_skills("research") == ["paper-research"]
+
+
+def test_script_rules_depend_on_handout(settings):
+    store = PromptStore(settings.prompts_dir)
+    without = store.resolve(prompt_context(settings, EpisodeRequest(topic="x")))["script_rules"]
+    with_handout = store.resolve(
+        prompt_context(settings, EpisodeRequest(topic="x", options=EpisodeOptions(handout=True)))
+    )["script_rules"]
+    assert "Keine Formeln vorlesen" in without and "Keine Formeln vorlesen" in with_handout
+    assert "Es gibt kein Handout" in without and "handout_items" not in without
+    assert "handout_items" in with_handout

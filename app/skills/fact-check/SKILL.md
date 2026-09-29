@@ -12,6 +12,7 @@ Go through the script chapter by chapter:
 3. **Claims.** Results must not be overstated. "Zeigt" versus "deutet darauf hin" matters. Keep the authors' own caveats.
 4. **Explanations.** Analogies must not be misleading in a way that changes the science. If an analogy has a known limit, let the expert say so briefly.
 5. **Balance.** Limitations or criticism from the notes must be mentioned at least once.
-6. **Length and flow.** Check the total word count against the target. Cut repetition; merge turns that say the same thing twice.
+6. **Formulas.** No formula is read out, apart from very short, famous ones. Replace any other with a verbal explanation. Every reference to the handout must have a matching entry in `handout_items`, and there must be no handout references at all when there is no handout.
+7. **Length and flow.** Check the total word count against the target. Cut repetition; merge turns that say the same thing twice.
 
 Fix problems directly in the script. Do not add a list of changes to the output.

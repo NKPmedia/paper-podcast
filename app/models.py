@@ -78,6 +78,11 @@ class Script(BaseModel):
     title: str
     summary: str = Field(description="Zwei bis drei Sätze Shownotes")
     chapters: list[Chapter]
+    handout_items: list[str] = Field(
+        default_factory=list,
+        description="Formeln, Tabellen oder Abbildungen, auf die im Gespräch verwiesen wird "
+        "und die ins Handout gehören (leer, wenn es kein Handout gibt)",
+    )
 
     def iter_lines(self):
         for ci, chapter in enumerate(self.chapters):

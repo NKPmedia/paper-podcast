@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from pydantic import ValidationError
 
@@ -19,12 +20,16 @@ MIN_LENGTH_RATIO = 0.7
 MAX_LENGTH_RATIO = 1.4
 MAX_LINE_CHARS = 900
 
+# Written math that must never reach the TTS (spoken explanations are fine).
+FORMULA_PATTERN = re.compile(r"[=^∑∫√≤≥≈∂∇]|\\[a-z]+|\b[a-zA-Z]_\{?[a-zA-Z0-9]")
+HANDOUT_PATTERN = re.compile(r"handout", re.IGNORECASE)
+
 
 def is_done(ctx) -> bool:
     return ctx.path("script.json").exists()
 
 
-def validate(script: Script, target_words: int) -> list[str]:
+def validate(script: Script, target_words: int, handout: bool = False) -> list[str]:
     problems = []
     if len(script.chapters) < 2:
         problems.append("Das Skript braucht mindestens zwei Kapitel.")
@@ -34,11 +39,22 @@ def validate(script: Script, target_words: int) -> list[str]:
     for ci, li, line in script.iter_lines():
         if not line.text.strip():
             problems.append(f"Kapitel {ci + 1}, Zeile {li + 1} ist leer.")
+        elif FORMULA_PATTERN.search(line.text):
+            problems.append(
+                f"Kapitel {ci + 1}, Zeile {li + 1} enthält eine geschriebene Formel oder Formelzeichen. "
+                "Formeln werden nicht vorgelesen; erkläre die Aussage in Worten."
+            )
+        elif not handout and HANDOUT_PATTERN.search(line.text):
+            problems.append(
+                f"Kapitel {ci + 1}, Zeile {li + 1} verweist auf ein Handout, es gibt aber keins."
+            )
         elif len(line.text) > MAX_LINE_CHARS:
             problems.append(
                 f"Kapitel {ci + 1}, Zeile {li + 1} ist zu lang ({len(line.text)} Zeichen); "
                 "teile sie in mehrere Wortwechsel auf."
             )
+    if not handout and script.handout_items:
+        problems.append("`handout_items` muss leer sein, weil es kein Handout gibt.")
     words = script.word_count
     if words < target_words * MIN_LENGTH_RATIO:
         problems.append(f"Das Skript ist zu kurz: {words} Wörter, Ziel sind etwa {target_words}.")
@@ -83,7 +99,7 @@ async def run(ctx) -> None:
         session_id = result.session_id
         try:
             script = Script.model_validate(result.structured)
-            problems = validate(script, target_words)
+            problems = validate(script, target_words, ctx.request.options.handout)
         except ValidationError as exc:
             script, problems = None, [f"Das JSON entspricht nicht dem Schema: {exc}"]
         ctx.log.write(
