@@ -4,39 +4,75 @@ A self-hosted server that turns a topic or paper description into a German
 two-person podcast: Claude Code researches the topic on the web, writes a dialogue
 between a curious host and an expert, and a free online TTS speaks it.
 
-See [PLAN.md](PLAN.md) for the full design. **Current state: milestone 1, the core
-pipeline as a CLI.** The web UI, Telegram bot, handout and connectors come next.
+See [PLAN.md](PLAN.md) for the full design. **Current state: milestone 2.** The core
+pipeline and a password-protected web UI with a job queue are done. The Telegram
+bot, handout and other connectors come next.
 
 ## Quick start (Docker)
 
 ```bash
 cp .env.example .env
-# On your own machine: `claude setup-token`, then put the token into .env
-#   CLAUDE_CODE_OAUTH_TOKEN=...
 mkdir -p data && sudo chown 1000:1000 data   # the container runs as uid 1000
-
 docker compose build
-docker compose run --rm app new "Das Paper 'Attention Is All You Need'" --length kurz --depth quick
+
+# 1. Claude: on your own machine run `claude setup-token`, then add to .env:
+#      CLAUDE_CODE_OAUTH_TOKEN=...
+# 2. Web password: prints a WEB_PASSWORD_HASH=... line for .env
+docker compose run --rm app python -m app.cli hash-password
+
+docker compose up -d
 ```
 
-The finished episode lands in `data/episodes/<datum>-<thema>/episode.mp3`.
+- The web UI listens on `127.0.0.1:8000`. Point your reverse proxy (HTTPS) at it.
+- If the proxy runs on another machine or in another Docker network, change the
+  `ports:` entry in `docker-compose.yml`.
+- The session cookie is `Secure`, so login only works over HTTPS. For a quick
+  plain-http test on your LAN, set `COOKIE_SECURE=false`.
+
+Episodes are stored in `data/episodes/<datum>-<thema>/`, with the finished audio
+as `episode.mp3`.
+
+## Web UI
+
+| Page | What you can do |
+|---|---|
+| Episodes | Start an episode: topic, length, research depth, extra wishes, and optional additions to prompt blocks or extra skills for this episode only. See the list with live status. |
+| Episode | See live progress per stage. Play the episode with a chapter list and download the MP3. Read the script, research notes and sources. See the research details: candidates, selection, which full texts were downloaded, and every Claude call with model, turns and cost. Cancel, resume after an error, re-generate from a stage, or delete. |
+| Prompts | Edit the prompt blocks with preview and syntax check, and reset them to the default. |
+| Skills | Choose which skills each stage uses. View the bundled skills; editing one creates your own copy, which you can reset later. Create new skills or import a `.zip`. |
+
+**Job handling:**
+- One job runs at a time; further jobs wait in a queue.
+- After a restart, an interrupted job continues from its last finished step.
+
+**Security:**
+- One password, stored as a scrypt hash.
+- Login is throttled after 5 failed attempts.
+- All forms carry CSRF tokens.
+- Session cookies are `SameSite=Lax`.
+- Research notes are rendered without raw HTML.
 
 ## CLI
 
+Inside the running container:
+
 ```bash
-# New episode
-docker compose run --rm app new "Neue Festkörperbatterien" \
+# Queue an episode for the server (it shows up in the web UI)
+docker compose exec app python -m app.cli enqueue "Neue Festkörperbatterien" --length kurz
+
+# Or run one directly in the foreground, without the queue
+docker compose exec app python -m app.cli new "Neue Festkörperbatterien" \
     --length mittel          # kurz (~5 min) | mittel (~12 min) | lang (~25 min)
     --depth medium           # quick | medium | deep research
     --extra "Fokus auf Anwendungen in E-Autos"
     --block "style=Etwas mehr Humor."   # append to a prompt block for this episode
     --skill mein-skill       # enable an extra skill
 
-# Resume after an error, or re-run from a stage (research | script | tts | audio)
-docker compose run --rm app resume /data/episodes/<id> --from-stage script
+# Resume, or re-run from a stage (research | script | tts | audio)
+docker compose exec app python -m app.cli resume /data/episodes/<id> --from-stage script
 
-docker compose run --rm app prompts   # list prompt blocks (* = customized)
-docker compose run --rm app skills    # list skills
+docker compose exec app python -m app.cli prompts   # list prompt blocks (* = customized)
+docker compose exec app python -m app.cli skills    # list skills
 ```
 
 ## Pipeline

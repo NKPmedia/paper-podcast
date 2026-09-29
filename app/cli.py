@@ -2,19 +2,25 @@
 
     python -m app.cli new "Neue Festkörperbatterien" --length kurz --depth quick
     python -m app.cli resume <job_dir> [--from-stage script]
+    python -m app.cli enqueue "Thema" [...]  # hand a job to the running server's queue
     python -m app.cli prompts                # list prompt blocks
     python -m app.cli skills                 # list skills
+    python -m app.cli hash-password          # create WEB_PASSWORD_HASH
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import getpass
 import logging
 import sys
 from pathlib import Path
 
+from app.auth import hash_password
 from app.config import get_settings
+from app.db import JobStore
+from app.jobs import JobService
 from app.models import EpisodeOptions, EpisodeRequest, Length, ResearchDepth
 from app.pipeline import STAGE_NAMES, create_job, load_context, run_pipeline
 from app.prompts import BLOCK_DESCRIPTIONS, PromptStore
@@ -47,14 +53,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    new = sub.add_parser("new", help="Create and generate a new episode")
-    new.add_argument("topic", help="Thema / Paper-Beschreibung")
-    new.add_argument("--length", choices=[x.value for x in Length], default=Length.mittel.value)
-    new.add_argument("--depth", choices=[x.value for x in ResearchDepth], default=ResearchDepth.medium.value)
-    new.add_argument("--extra", default="", help="Zusätzliche Wünsche für diese Episode")
-    new.add_argument("--block", action="append", default=[], metavar="BLOCK=TEXT",
-                     help="Text an einen Prompt-Block anhängen (mehrfach möglich)")
-    new.add_argument("--skill", action="append", default=[], help="Zusätzlichen Skill aktivieren")
+    for command, help_text in (
+        ("new", "Create and generate a new episode right here"),
+        ("enqueue", "Queue a new episode for the running server"),
+    ):
+        new = sub.add_parser(command, help=help_text)
+        new.add_argument("topic", help="Thema / Paper-Beschreibung")
+        new.add_argument("--length", choices=[x.value for x in Length], default=Length.mittel.value)
+        new.add_argument("--depth", choices=[x.value for x in ResearchDepth], default=ResearchDepth.medium.value)
+        new.add_argument("--extra", default="", help="Zusätzliche Wünsche für diese Episode")
+        new.add_argument("--block", action="append", default=[], metavar="BLOCK=TEXT",
+                         help="Text an einen Prompt-Block anhängen (mehrfach möglich)")
+        new.add_argument("--skill", action="append", default=[], help="Zusätzlichen Skill aktivieren")
 
     resume = sub.add_parser("resume", help="Continue or partially re-run an existing episode")
     resume.add_argument("job_dir", type=Path)
@@ -62,12 +72,25 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("prompts", help="List prompt blocks")
     sub.add_parser("skills", help="List available skills")
+    sub.add_parser("hash-password", help="Create a password hash for WEB_PASSWORD_HASH")
 
     args = parser.parse_args(argv)
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    if args.command == "hash-password":
+        password = getpass.getpass("Passwort: ")
+        if len(password) < 10:
+            print("Bitte mindestens 10 Zeichen verwenden.", file=sys.stderr)
+            return 1
+        if getpass.getpass("Wiederholen: ") != password:
+            print("Die Passwörter stimmen nicht überein.", file=sys.stderr)
+            return 1
+        # Single quotes: docker compose and python-dotenv then read the $ signs literally.
+        print(f"WEB_PASSWORD_HASH='{hash_password(password)}'")
+        return 0
+
     settings = get_settings()
     prompts = PromptStore(settings.prompts_dir)
 
@@ -85,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{skill.name:26} [{origin}] {skill.description[:90]}")
         return 0
 
-    if args.command == "new":
+    if args.command in ("new", "enqueue"):
         request = EpisodeRequest(
             topic=args.topic,
             options=EpisodeOptions(
@@ -96,6 +119,10 @@ def main(argv: list[str] | None = None) -> int:
                 extra_skills=args.skill,
             ),
         )
+        if args.command == "enqueue":
+            job = JobService(settings, JobStore(settings.db_path), prompts).submit(request, origin="cli")
+            print(f"In Warteschlange: {job.id}")
+            return 0
         job_dir = create_job(settings, request, prompts)
         print(f"Episode: {job_dir}")
         from_stage = None

@@ -108,6 +108,7 @@ async def run(ctx) -> None:
         ctx.log.write(
             "claude",
             stage=NAME,
+            model=ctx.settings.script_model,
             attempt=attempt,
             cost_usd=result.cost_usd,
             turns=result.num_turns,

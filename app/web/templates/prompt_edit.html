@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <p class="muted"><a href="/prompts">← Prompt-Blöcke</a></p>
+  <h1>{{ name }} {% if overridden %}<span class="badge done">angepasst</span>{% endif %}</h1>
+  <p class="muted">{{ description }}</p>
+  {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+  <form method="post">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <textarea name="text" rows="18" class="code">{{ text }}</textarea>
+    <div class="actions">
+      <button class="primary" name="action" value="save">Speichern</button>
+      <button name="action" value="preview">Vorschau</button>
+      {% if overridden %}<button name="action" value="reset" class="danger" data-confirm="Auf den Standard zurücksetzen?">Auf Standard zurücksetzen</button>{% endif %}
+    </div>
+  </form>
+  <p class="hint">Jinja2-Vorlage. Variablen: {% for k, v in variables.items() %}<code>{{ "{{ " ~ k ~ " }}" }}</code> = {{ v }}; {% endfor %}</p>
+</section>
+{% if preview is not none %}
+<section class="card"><h2>Vorschau</h2><pre class="preview">{{ preview }}</pre></section>
+{% endif %}
+<details class="card"><summary><h2>Standardversion</h2></summary><pre class="preview">{{ default }}</pre></details>
+{% endblock %}

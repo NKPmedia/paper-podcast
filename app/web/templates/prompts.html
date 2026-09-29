@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h1>Prompt-Blöcke</h1>
+  <p class="muted">Diese Blöcke werden zu den Prompts für Claude zusammengesetzt. Änderungen gelten für alle neuen Episoden; bestehende Episoden behalten ihre Version.</p>
+  <ul class="list">
+    {% for name, description, overridden in items %}
+    <li><a href="/prompts/{{ name }}">{{ name }}</a> {% if overridden %}<span class="badge done">angepasst</span>{% endif %}<br><span class="muted">{{ description }}</span></li>
+    {% endfor %}
+  </ul>
+  <p class="hint">Verfügbare Variablen: {% for v in variables %}<code>{{ "{{ " ~ v ~ " }}" }}</code> {% endfor %}</p>
+</section>
+{% endblock %}

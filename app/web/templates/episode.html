@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}{{ job.display_title }} · {{ podcast_name }}{% endblock %}
+{% block content %}
+<section class="card" data-episode-status="/episodes/{{ job.id }}/status.json" data-status="{{ job.status }}">
+  <p class="muted"><a href="/">← Alle Episoden</a></p>
+  <h1>{{ job.display_title }}</h1>
+  {% if job.title %}<p class="muted">Thema: {{ job.topic }}</p>{% endif %}
+  <p class="meta">
+    <span class="badge {{ job.status }}" data-field="status">{{ status_labels[job.status] }}</span>
+    {{ lengths.get(options.get("length"), "") }} · Recherche {{ depths.get(options.get("research_depth"), "") }}
+    · erstellt {{ job.created_at | time }}
+    {% if job.cost_usd %}· Claude ≈ {{ "%.2f" | format(job.cost_usd) }} $ (API-Äquivalent){% endif %}
+  </p>
+
+  {% if job.active or job.status in ("failed", "cancelled") %}
+  <ol class="stages">
+    {% for stage, done in stages %}
+    <li class="{% if done %}done{% elif job.stage == stage and job.status == 'running' %}current{% endif %}">{{ stage_labels[stage] }}</li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+  {% if job.active %}<p class="progress" data-field="message">{{ job.message or "Wartet auf den Start …" }}</p>{% endif %}
+  {% if job.error %}<pre class="error-box">{{ job.error }}</pre>{% endif %}
+
+  <div class="actions">
+    {% if job.active %}
+    <form method="post" action="/episodes/{{ job.id }}/cancel"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Abbrechen</button></form>
+    {% else %}
+      {% if job.status != "done" %}
+      <form method="post" action="/episodes/{{ job.id }}/retry"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="primary">Fortsetzen</button></form>
+      {% endif %}
+      <form method="post" action="/episodes/{{ job.id }}/retry" class="inline-select">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <select name="from_stage">{% for s in stage_names %}<option value="{{ s }}">ab {{ stage_labels[s] }}</option>{% endfor %}</select>
+        <button>Neu erzeugen</button>
+      </form>
+      <form method="post" action="/episodes/{{ job.id }}/delete" data-confirm="Episode samt allen Dateien löschen?"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Löschen</button></form>
+    {% endif %}
+  </div>
+</section>
+
+{% if episode and not job.active %}
+<section class="card">
+  <audio controls preload="metadata" src="/episodes/{{ job.id }}/audio" id="player"></audio>
+  <p><a href="/episodes/{{ job.id }}/audio?download=1">MP3 herunterladen</a> · {{ episode.duration_seconds | duration }} min</p>
+  <p>{{ episode.summary }}</p>
+  <h3>Kapitel</h3>
+  <ol class="chapters">
+    {% for c in episode.chapters %}
+    <li><button class="link" data-seek="{{ c.start_ms / 1000 }}">{{ (c.start_ms // 1000) | duration or "0:00" }}</button> {{ c.title }}</li>
+    {% endfor %}
+  </ol>
+</section>
+{% endif %}
+
+{% if script %}
+<details class="card">
+  <summary><h2>Skript</h2></summary>
+  {% for chapter in script.chapters %}
+  <h3>{{ chapter.title }}</h3>
+  {% for line in chapter.lines %}
+  <p class="line {{ line.speaker }}"><strong>{{ names[line.speaker] }}:</strong> {{ line.text }}</p>
+  {% endfor %}
+  {% endfor %}
+  {% if script.handout_items %}<h3>Fürs Handout</h3><ul>{% for item in script.handout_items %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+</details>
+{% endif %}
+
+{% if research_html %}
+<details class="card">
+  <summary><h2>Recherche-Notizen</h2></summary>
+  <div class="markdown">{{ research_html | safe }}</div>
+</details>
+{% endif %}
+
+{% if sources %}
+<details class="card">
+  <summary><h2>Quellen ({{ sources | length }})</h2></summary>
+  <ol>
+    {% for s in sources %}
+    <li>{% if s.url | safe_url %}<a href="{{ s.url | safe_url }}" rel="noopener noreferrer" target="_blank">{{ s.title }}</a>{% else %}{{ s.title }}{% endif %}
+      {% if s.authors %}— {{ s.authors }}{% endif %}{% if s.year %} ({{ s.year }}){% endif %}
+      {% if s.why_relevant %}<br><span class="muted">{{ s.why_relevant }}</span>{% endif %}</li>
+    {% endfor %}
+  </ol>
+</details>
+{% endif %}
+
+{% if candidates %}
+<details class="card">
+  <summary><h2>Recherche-Details</h2></summary>
+  {% if selection %}<p><strong>Fokus:</strong> {{ selection.focus }}</p>{% endif %}
+  {% set selected = selection.selected | map(attribute="id") | list if selection else [] %}
+  {% set paper_by_id = {} %}{% for p in papers %}{% set _ = paper_by_id.update({p.id: p}) %}{% endfor %}
+  <table class="candidates">
+    <thead><tr><th>Bewertung</th><th>Quelle</th><th>Gefunden von</th><th>Volltext</th></tr></thead>
+    <tbody>
+    {% for c in candidates %}
+    <tr class="{% if c.id in selected %}selected{% endif %}">
+      <td>{{ c.score }}</td>
+      <td>{% if c.url | safe_url %}<a href="{{ c.url | safe_url }}" rel="noopener noreferrer" target="_blank">{{ c.title }}</a>{% else %}{{ c.title }}{% endif %}
+        <br><span class="muted">{{ c.reason }}</span></td>
+      <td>{{ c.found_by | join(", ") }}</td>
+      <td>{% if c.id in paper_by_id %}{% if paper_by_id[c.id].file %}✓ {{ paper_by_id[c.id].format }}{% else %}<span title="{{ paper_by_id[c.id].error }}">✗</span>{% endif %}{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if claude_calls %}
+  <h3>Claude-Aufrufe</h3>
+  <table>
+    <thead><tr><th>Schritt</th><th>Modell</th><th>Runden</th><th>Kosten</th><th>Skills</th></tr></thead>
+    <tbody>
+    {% for c in claude_calls %}
+    <tr><td>{{ c.stage }}{% if c.step %} · {{ c.step }}{% endif %}{% if c.attempt %} · Versuch {{ c.attempt }}{% endif %}</td>
+      <td>{{ c.model or "" }}</td><td>{{ c.turns }}</td>
+      <td>{% if c.cost_usd %}{{ "%.2f" | format(c.cost_usd) }} ${% endif %}</td>
+      <td>{{ (c.skills_used or []) | join(", ") }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</details>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h1>Skills</h1>
+  <p class="muted">Skills sind Anleitungen und Referenzmaterial, die Claude bei Bedarf lädt. Hier legst du fest, welche Skills in welcher Stufe verfügbar sind.</p>
+  <form method="post" action="/skills/stages">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <table class="skills">
+      <thead><tr><th>Skill</th>{% for stage in stages %}<th>{{ skill_stage_labels[stage] }}</th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for skill in skills.values() %}
+      <tr>
+        <td><a href="/skills/{{ skill.name }}">{{ skill.name }}</a>
+          {% if skill.overridden %}<span class="badge done">angepasst</span>{% elif not skill.bundled %}<span class="badge queued">eigener</span>{% endif %}
+          <br><span class="muted">{{ skill.description }}</span></td>
+        {% for stage in stages %}
+        <td class="center"><input type="checkbox" name="stage_{{ stage }}" value="{{ skill.name }}" {% if skill.name in stage_config[stage] %}checked{% endif %} aria-label="{{ skill.name }} in {{ skill_stage_labels[stage] }}"></td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <button class="primary">Zuordnung speichern</button>
+  </form>
+</section>
+<section class="card">
+  <h2>Neuer Skill</h2>
+  <form method="post" action="/skills/new">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="row">
+      <label>Name <input name="name" required pattern="[a-z0-9][a-z0-9\-]*" placeholder="mein-skill"></label>
+      <label class="grow">Beschreibung <input name="description" placeholder="Wann soll Claude diesen Skill nutzen?"></label>
+    </div>
+    <button>Anlegen</button>
+  </form>
+  <h2>Skill importieren</h2>
+  <form method="post" action="/skills/upload" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="file" name="file" accept=".zip" required>
+    <button>Zip hochladen</button>
+    <p class="hint">Zip mit einer <code>SKILL.md</code> (z.B. aus <code>anthropics/skills</code>), max. 2 MB.</p>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <p class="muted"><a href="/skills">← Skills</a></p>
+  <h1>{{ skill.name }}
+    {% if skill.overridden %}<span class="badge done">angepasst</span>{% elif skill.bundled %}<span class="badge">mitgeliefert</span>{% else %}<span class="badge queued">eigener</span>{% endif %}</h1>
+  <p class="muted">{{ skill.description }}</p>
+  <nav class="files">{% for f in files %}<a href="/skills/{{ skill.name }}?file={{ f | urlencode }}" {% if f == file %}class="active"{% endif %}>{{ f }}</a>{% endfor %}</nav>
+  {% if editable %}
+  <form method="post" action="/skills/{{ skill.name }}/file">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="file" value="{{ file }}">
+    <textarea name="content" rows="24" class="code">{{ content }}</textarea>
+    <div class="actions"><button class="primary">Speichern</button></div>
+  </form>
+  <form method="post" action="/skills/{{ skill.name }}/file" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label class="grow">Neue Datei <input name="file" placeholder="reference/notizen.md" required></label>
+    <button>Anlegen</button>
+  </form>
+  <form method="post" action="/skills/{{ skill.name }}/remove" data-confirm="{% if skill.bundled %}Eigene Änderungen verwerfen und zur mitgelieferten Version zurückkehren?{% else %}Skill löschen?{% endif %}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="danger">{% if skill.bundled %}Auf mitgelieferte Version zurücksetzen{% else %}Skill löschen{% endif %}</button>
+  </form>
+  {% else %}
+  <pre class="preview">{{ content }}</pre>
+  <form method="post" action="/skills/{{ skill.name }}/override">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="primary">Bearbeiten (eigene Kopie anlegen)</button>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}

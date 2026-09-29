@@ -20,6 +20,9 @@ RUN mkdir -p /data && chown app:app /data
 USER app
 VOLUME ["/data"]
 
-# Milestone 1: CLI only. The web server / Telegram bot will become the default command.
-ENTRYPOINT ["python", "-m", "app.cli"]
-CMD ["--help"]
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"
+
+# Web UI + worker. CLI: docker compose exec app python -m app.cli --help
+CMD ["python", "-m", "app.main"]

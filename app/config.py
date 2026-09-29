@@ -27,6 +27,13 @@ class Settings(BaseSettings):
 
     data_dir: Path = Path("/data")
 
+    # Web UI
+    web_password_hash: str = ""  # create with: python -m app.cli hash-password
+    session_secret: str = ""  # empty = generated once and stored in the data dir
+    cookie_secure: bool = True  # set false only for plain-http testing on a LAN
+    port: int = 8000
+    timezone: str = "Europe/Berlin"
+
     # Claude models per role: alias (haiku, sonnet, opus) or a full model ID
     research_scout_model: str = "haiku"
     research_main_model: str = "opus"
@@ -71,6 +78,10 @@ class Settings(BaseSettings):
     @property
     def assets_dir(self) -> Path:
         return self.data_dir / "assets"
+
+    @property
+    def db_path(self) -> Path:
+        return self.data_dir / "jobs.sqlite3"
 
 
 @lru_cache
