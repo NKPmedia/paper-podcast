@@ -50,15 +50,16 @@ ANGLES = {
 class DepthProfile:
     angles: tuple[str, ...]
     candidates_per_scout: int
+    searches_per_scout: int  # WebSearch + API queries; keeps cheap scouts cheap
     papers: int
     scout_turns: int
     main_turns: int
 
 
 PROFILES = {
-    ResearchDepth.quick: DepthProfile(("overview",), 10, 3, 15, 40),
-    ResearchDepth.medium: DepthProfile(("background", "core", "critique"), 12, 6, 20, 80),
-    ResearchDepth.deep: DepthProfile(("background", "core", "critique", "citations", "recent"), 15, 10, 30, 150),
+    ResearchDepth.quick: DepthProfile(("overview",), 10, 8, 3, 14, 40),
+    ResearchDepth.medium: DepthProfile(("background", "core", "critique"), 12, 6, 6, 12, 80),
+    ResearchDepth.deep: DepthProfile(("background", "core", "critique", "citations", "recent"), 15, 8, 10, 16, 150),
 }
 
 
@@ -158,6 +159,7 @@ async def _run_scout(ctx, angle: str, profile: DepthProfile, skills: list[str]) 
         extra_instructions=opts.extra_instructions,
         angle=ANGLES[angle],
         count=profile.candidates_per_scout,
+        searches=profile.searches_per_scout,
     )
     model = ctx.settings.research_scout_model
     result = await ctx.claude.run(
@@ -243,7 +245,8 @@ async def select_papers(ctx, candidates: list[RankedCandidate], profile: DepthPr
 
 
 async def read_and_write_notes(ctx, candidates, selection, papers, profile, skills) -> ResearchResult:
-    await ctx.notify(NAME, f"Claude liest {sum(1 for p in papers if p['file'])} Paper im Volltext")
+    full = sum(1 for p in papers if p["file"])
+    await ctx.notify(NAME, f"Claude liest {len(papers)} Paper ({full} im Volltext, {len(papers) - full} per WebFetch)")
     by_id = {c.id: c for c in candidates}
     selected_ids = {p.id for p in selection.selected}
     prompt = render_stage(

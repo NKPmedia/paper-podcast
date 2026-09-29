@@ -172,7 +172,7 @@ async def test_medium_research_flow(settings):
     responses = default_responses()
 
     def scout(call):
-        if "Kritik und Einordnung" in call.prompt:
+        if "Replikationen, Grenzen, Gegenpositionen" in call.prompt:
             raise RuntimeError("scout crashed")
         return {"candidates": [{"title": "Ein Paper", "arxiv_id": "2401.00001", "score": 9, "reason": "Kern"},
                                {"title": "Blogpost", "url": "https://blog.example.org/p", "score": 3, "reason": "B"}]}
@@ -209,7 +209,7 @@ async def test_medium_research_flow(settings):
     assert read.model == "opus" and read.tools == ["Read", "WebSearch", "WebFetch"]
     assert "papers/arxiv_2401.00001.md" in read.prompt
     assert "Nutze WebFetch mit gezielten Fragen: https://blog.example.org/p" in read.prompt
-    assert any("Scout" in n for n in notes) and any("liest 1 Paper" in n for n in notes)
+    assert any("Scout" in n for n in notes) and any("liest 2 Paper (1 im Volltext, 1 per WebFetch)" in n for n in notes)
 
 
 async def test_research_resumes_and_resets(settings):

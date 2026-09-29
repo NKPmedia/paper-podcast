@@ -240,7 +240,11 @@ class PaperDownloader:
     async def download(self, candidate: RankedCandidate, out_dir: Path) -> PaperFile:
         paper = PaperFile(id=candidate.id, title=candidate.title)
         errors = []
+        tried = set()
         for url, doi in self._attempts(candidate):
+            if (url, doi) in tried:
+                continue
+            tried.add((url, doi))
             try:
                 if doi:
                     url = await self._openalex_pdf(doi)

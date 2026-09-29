@@ -36,7 +36,7 @@ def _ctx(settings):
 def test_stage_templates_render(settings):
     blocks = PromptStore(settings.prompts_dir).resolve(_ctx(settings))
     text = render_stage(
-        "scout", blocks=blocks, topic="Quantencomputer", extra_instructions="", angle="Kritik", count=10
+        "scout", blocks=blocks, topic="Quantencomputer", extra_instructions="", angle="Kritik", count=10, searches=6
     )
     assert "Quantencomputer" in text and "paper-research" in text and "Kritik" in text
 
