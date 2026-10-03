@@ -23,7 +23,7 @@ and pushes it to the GitHub Container Registry
 Pull requests are built but not pushed.
 
 To run the prebuilt image, use [`docker-compose.example.yml`](docker-compose.example.yml):
-copy it to `docker-compose.yml`, fill in `.env`, then run `docker compose up -d`.
+copy it to `docker-compose.yml`, then run `docker compose up -d`.
 Update with `docker compose pull && docker compose up -d`.
 
 If the package is private, log in on the server once with a token that has
@@ -33,8 +33,6 @@ paper-podcast → Package settings.
 ## Quick start (Docker, build locally)
 
 ```bash
-mkdir -p data && sudo chown 1000:1000 data   # the container runs as uid 1000
-touch .env                                    # optional: settings from .env.example
 docker compose build
 docker compose up -d
 docker compose logs app | grep -A1 Ersteinrichtung   # shows the one-time setup code
@@ -54,10 +52,12 @@ Open the web UI. On the first visit a short **setup dialog** asks for:
 | Allow plain-HTTP login | Only offered over HTTP; for testing without a proxy |
 
 **Where settings are stored:**
-- Everything entered in the dialog is saved in `data/settings.json` (readable only by
-  the owner).
+- Everything entered in the dialog is saved in `settings.json` in the
+  `paper-podcast-data` volume, readable only by the owner. The volume holds all data:
+  episodes, database, settings, prompts, skills and uploads.
 - It can be changed later under **Einstellungen**.
-- Values set in `.env` take precedence; the UI shows them as locked.
+- Values passed as environment variables (`environment:` in the compose file, see
+  `.env.example` for all names) take precedence; the UI shows them as locked.
 - A Telegram token change restarts the bot immediately.
 
 **Networking:**
@@ -65,8 +65,8 @@ Open the web UI. On the first visit a short **setup dialog** asks for:
 - If the proxy runs on another machine or in another Docker network, change the
   `ports:` entry.
 
-**Where episodes go:** `data/episodes/<datum>-<thema>/`, with the finished audio as
-`episode.mp3`.
+**Where episodes go:** `/data/episodes/<datum>-<thema>/` inside the volume, with the
+finished audio as `episode.mp3`.
 
 ## Web UI
 
@@ -94,11 +94,11 @@ Open the web UI. On the first visit a short **setup dialog** asks for:
 
 **Setup:**
 1. Create a bot with [@BotFather](https://t.me/BotFather) and put its token into
-   `.env` as `TELEGRAM_BOT_TOKEN`.
-2. Leave `TELEGRAM_ALLOWED_CHAT_IDS` empty and restart the container.
+   the setup dialog or under **Einstellungen**.
+2. Leave the chat IDs empty. The bot starts immediately, without a restart.
 3. Write anything to your bot. It replies with your chat ID.
-4. Put the ID into `TELEGRAM_ALLOWED_CHAT_IDS` and restart again. From then on the
-   bot ignores every other chat.
+4. Enter that ID under **Einstellungen → Telegram → Erlaubte Chat-IDs**. From then on
+   the bot ignores every other chat.
 
 The bot uses long polling, so it needs no inbound port or webhook.
 
@@ -132,7 +132,7 @@ The **Verbindungen** page shows your private feed URL, with a copy button.
   by URL"), and new episodes appear automatically.
 - Each episode includes its chapters (Podcasting 2.0), show notes with sources,
   and a handout link.
-- The URL contains a secret token. For a new one, delete `data/feed_token` (or set
+- The URL contains a secret token. For a new one, delete `/data/feed_token` in the volume (or set
   `FEED_TOKEN`) and restart.
 
 ## CLI
@@ -191,7 +191,7 @@ Claude cost and turns, and which skills Claude actually used.
 
 ## Customizing
 
-**Prompt blocks.** Copy a file from `app/prompts/defaults/` to `data/prompts/`
+**Prompt blocks.** Copy a file from `app/prompts/defaults/` to `/data/prompts/`
 and edit it. Blocks are Jinja2 templates with `{{ host_name }}`, `{{ expert_name }}`,
 `{{ podcast_name }}`, `{{ minutes }}`, `{{ target_words }}` and
 `{{ research_depth }}` available.
@@ -216,9 +216,9 @@ and edit it. Blocks are Jinja2 templates with `{{ host_name }}`, `{{ expert_name
 | `fact-check` | Checking the script against the research |
 | `handout-plots` | Plot style guide for the handout |
 
-- **Add your own:** put a folder with a `SKILL.md` into `data/skills/<name>/`. The
+- **Add your own:** put a folder with a `SKILL.md` into `/data/skills/<name>/`. The
   same name as a bundled skill overrides it.
-- **Choose skills per stage:** use `data/skills.json`:
+- **Choose skills per stage:** use `/data/skills.json`:
 
   ```json
   {"stages": {"research": ["paper-research", "mein-skill"]}}

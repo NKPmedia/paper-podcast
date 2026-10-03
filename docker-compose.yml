@@ -2,10 +2,12 @@ services:
   app:
     build: .
     image: paper-podcast
-    env_file: .env
     volumes:
-      - ./data:/data
+      - paper-podcast-data:/data
     ports:
       # Put your reverse proxy (HTTPS) in front of this port.
       - "127.0.0.1:8000:8000"
     restart: unless-stopped
+
+volumes:
+  paper-podcast-data:
