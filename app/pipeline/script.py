@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from app.claude import ClaudeCall
 from app.models import Script, Source, json_schema
 from app.errors import PodcastError
+from app.pipeline import clarify
 from app.prompts import render_stage
 
 NAME = "script"
@@ -82,6 +83,7 @@ async def run(ctx) -> None:
         notes=notes,
         sources=sources,
         papers=papers,
+        clarifications=clarify.answers_text(ctx.job_dir),
         **{**ctx.prompt_context, "language_name": opts.language.english_name},
     )
     session_id = None

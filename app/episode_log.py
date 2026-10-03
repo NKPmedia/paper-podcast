@@ -94,6 +94,17 @@ def _describe(entry: dict) -> tuple[str, str, str]:
         detail = "\n".join(entry.get("problems") or [])
         title = f"Claude ({entry.get('model', '')}) · {stage}" + (f" · {step}" if step else "")
         return "claude", f"{title}: " + ", ".join(parts), detail
+    if event == "clarify":
+        count = entry.get("questions", 0)
+        text = f"Claude hat {count} Rückfrage(n) gestellt" if count else "Keine Rückfragen nötig – das Thema ist klar"
+        return ("warn" if count else "info"), text, entry.get("reason", "")
+    if event == "waiting":
+        return "warn", "Pausiert: wartet auf deine Antworten", ""
+    if event == "answers":
+        answered, total = entry.get("answered", 0), entry.get("questions", 0)
+        text = (f"Antworten erhalten ({answered} von {total})" if answered
+                else "Ohne Antworten fortgesetzt – Claude entscheidet selbst")
+        return "done", text, ""
     if event == "scout_failed":
         return "error", f"Scout {entry.get('angle', '')} fehlgeschlagen", entry.get("error", "")
     if event == "downloads":

@@ -32,6 +32,7 @@ from app.db import JobStore
 from app.jobs import ContextFactory, JobError, JobService, Worker
 from app.episode_log import call_tokens, fmt_tokens, read_log, timeline, token_totals
 from app.models import EpisodeOptions, EpisodeRequest, Language, Length, ResearchDepth
+from app.pipeline import clarify
 from app.pipeline.research import depth_hint
 from app.pipeline import STAGE_ARTIFACTS, prompt_context, slugify, stages_for
 from app.prompts import BLOCK_DESCRIPTIONS, PromptStore
@@ -47,6 +48,7 @@ STAGE_LABELS = {"research": "Recherche", "script": "Skript", "handout": "Handout
 STATUS_LABELS = {
     "queued": "Wartet",
     "running": "Läuft",
+    "waiting": "Rückfragen",
     "done": "Fertig",
     "failed": "Fehler",
     "cancelled": "Abgebrochen",
@@ -466,6 +468,7 @@ def create_app(
         }
         try:
             options = EpisodeOptions(
+                clarify=form.get("clarify") == "on",
                 length=Length(form.get("length", "mittel")),
                 research_depth=ResearchDepth(form.get("depth", "medium")),
                 handout=form.get("handout") == "on",
@@ -521,6 +524,7 @@ def create_app(
             tokens=token_totals(log_entries),
             timeline=timeline(log_entries, tz),
             languages=LANGUAGE_LABELS,
+            clarification=clarify.load(job_dir),
             names={"host": settings.host_name, "expert": settings.expert_name},
             stage_names=job_stages,
         )
@@ -573,6 +577,24 @@ def create_app(
         await job_action(
             request, job_id, lambda form: service.retry(job_id, form.get("from_stage") or None)
         )
+        return redirect(f"/episodes/{job_id}")
+
+    @app.post("/episodes/{job_id}/answers")
+    async def answers(request: Request, job_id: str):
+        def submit(form):
+            questions = clarify.pending_questions(service.job_dir(job_id)) if store.get(job_id) else []
+            replies = []
+            for i, question in enumerate(questions):
+                text = str(form.get(f"q{i}_text", "")).strip() if question.get("allow_free_text") else ""
+                choice = str(form.get(f"q{i}", "")).strip()
+                replies.append(text or (choice if choice in question["options"] else ""))
+            if form.get("skip"):
+                replies = []
+            service.answer(job_id, replies)
+            flash(request, "Danke! Die Recherche geht mit deinen Antworten weiter." if any(replies)
+                  else "Die Recherche geht ohne Antworten weiter – Claude entscheidet selbst.")
+
+        await job_action(request, job_id, submit)
         return redirect(f"/episodes/{job_id}")
 
     @app.post("/episodes/{job_id}/delete")

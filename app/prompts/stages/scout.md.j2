@@ -8,7 +8,13 @@ You are a research scout for a podcast episode. Your job is to **find and rate s
 
 {{ extra_instructions }}
 {% endif %}
-# Your angle
+{% if clarifications | default("") %}# Answers from the listener
+
+Before the research, the listener answered these questions. Follow them; they define what the episode is about.
+
+{{ clarifications }}
+
+{% endif %}# Your angle
 
 {{ angle }}
 

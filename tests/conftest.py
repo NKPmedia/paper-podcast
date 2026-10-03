@@ -65,6 +65,7 @@ PLOT_FIX = {"plots": [{"name": "zweite", "caption": "Schematisch",
 
 def default_responses(script: dict | None = None) -> dict:
     return {
+        "ClarificationRequest": [{"needs_clarification": False, "reason": "Clear topic.", "questions": []}] * 5,
         "Handout": [HANDOUT],
         "PlotFixes": [PLOT_FIX],
         "ScoutResult": [SCOUT] * 10,

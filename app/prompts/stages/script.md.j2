@@ -16,7 +16,13 @@
 
 {{ extra_instructions }}
 {% endif %}
-# Topic
+{% if clarifications | default("") %}# Answers from the listener
+
+Before the research, the listener answered these questions. Follow them; they define what the episode is about.
+
+{{ clarifications }}
+
+{% endif %}# Topic
 
 {{ topic }}
 

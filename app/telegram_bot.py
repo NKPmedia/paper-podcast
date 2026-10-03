@@ -14,7 +14,7 @@ from __future__ import annotations
 import html
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
@@ -23,6 +23,7 @@ from app.db import Job
 from app.errors import split_error
 from app.jobs import JobError, JobService, Worker
 from app.models import EpisodeOptions, EpisodeRequest, Language, Length, ResearchDepth
+from app.pipeline import clarify
 from app.pipeline.research import depth_hint
 from app.pipeline import STAGE_ARTIFACTS, stages_for
 
@@ -39,8 +40,9 @@ LENGTH_BUTTONS = {"kurz": "Kurz · 5 min", "mittel": "Mittel · 12 min", "lang":
 DEPTH_LABELS = {"quick": "Schnell", "medium": "Normal", "deep": "Gründlich"}
 DEPTH_HINTS = {d.value: depth_hint(d) + (", dauert länger" if d is ResearchDepth.deep else "") for d in ResearchDepth}
 LANGUAGE_LABELS = {"de": "🇩🇪 Deutsch", "en": "🇬🇧 English"}
-STATUS_ICONS = {"queued": "⏳", "running": "⚙️", "done": "✅", "failed": "❌", "cancelled": "🚫"}
-STATUS_LABELS = {"queued": "Wartet", "running": "Läuft", "done": "Fertig", "failed": "Fehler", "cancelled": "Abgebrochen"}
+STATUS_ICONS = {"queued": "⏳", "running": "⚙️", "waiting": "❓", "done": "✅", "failed": "❌", "cancelled": "🚫"}
+STATUS_LABELS = {"queued": "Wartet", "running": "Läuft", "waiting": "Rückfragen", "done": "Fertig", "failed": "Fehler",
+                 "cancelled": "Abgebrochen"}
 
 HELP = (
     "<b>Paper Podcast</b>\n"
@@ -89,6 +91,18 @@ class Draft:
     depth: str = ResearchDepth.medium.value
     handout: bool = False
     language: str = Language.de.value
+    clarify: bool = True
+
+
+@dataclass
+class AnswerSession:
+    """Clarifying questions of one job, asked one at a time in one message."""
+
+    job_id: str
+    questions: list[dict]
+    message_id: int = 0
+    index: int = 0
+    answers: list[str] = field(default_factory=list)
 
 
 def esc(text: str) -> str:
@@ -107,6 +121,7 @@ class TelegramBot:
         self.worker = worker
         self.messenger = messenger
         self.drafts: dict[tuple[int, int], Draft] = {}
+        self.sessions: dict[int, AnswerSession] = {}  # chat_id -> questions being answered
         self.max_audio_bytes = MAX_AUDIO_BYTES
         self._last_status_text: dict[tuple[int, int], str] = {}
 
@@ -152,6 +167,13 @@ class TelegramBot:
     async def handle_text(self, chat_id: int, text: str) -> None:
         if not await self.check_access(chat_id):
             return
+        session = self.sessions.get(chat_id)
+        if session and session.index < len(session.questions):
+            if session.questions[session.index].get("allow_free_text", True):
+                await self._record_answer(chat_id, session, text.strip())
+            else:
+                await self.messenger.send_text(chat_id, "Bitte wähle eine der Antworten oben aus.")
+            return
         await self.new_draft(chat_id, text)
 
     async def handle_callback(self, chat_id: int, message_id: int, callback_id: str, data: str) -> None:
@@ -162,9 +184,15 @@ class TelegramBot:
         if kind == "d":
             await self._draft_callback(chat_id, message_id, callback_id, rest)
             return
+        if kind == "q":
+            await self._question_callback(chat_id, message_id, callback_id, rest)
+            return
         job = self.store.get(rest) if rest else None
         try:
-            if kind == "r" and job:
+            if kind == "a" and job:
+                await self.messenger.answer_callback(callback_id)
+                await self.start_questions(chat_id, job)
+            elif kind == "r" and job:
                 self.service.retry(rest)
                 await self.messenger.answer_callback(callback_id, "Wird fortgesetzt")
                 await self._set_status_message(self.store.get(rest), chat_id, message_id)
@@ -206,12 +234,14 @@ class TelegramBot:
             f"Länge: {LENGTH_LABELS[draft.length]}\n"
             f"Recherche: {DEPTH_LABELS[draft.depth]} ({DEPTH_HINTS[draft.depth]})\n"
             f"Handout: {'ja (PDF)' if draft.handout else 'nein'}\n"
-            f"Sprache: {LANGUAGE_LABELS[draft.language]}"
+            f"Sprache: {LANGUAGE_LABELS[draft.language]}\n"
+            f"Rückfragen: {'erlaubt, falls das Thema unklar ist' if draft.clarify else 'nein'}"
         )
         keyboard = [
             [(mark(LENGTH_BUTTONS[v], draft.length == v), f"d:len:{v}") for v in LENGTH_LABELS],
             [(mark("🔎 " + DEPTH_LABELS[v], draft.depth == v), f"d:dep:{v}") for v in DEPTH_LABELS],
-            [(mark("📄 Handout (PDF)", draft.handout), "d:ho")]
+            [(mark("📄 Handout (PDF)", draft.handout), "d:ho"), (mark("❓ Rückfragen", draft.clarify), "d:cl")],
+            []
             + [(mark(LANGUAGE_LABELS[v], draft.language == v), f"d:lang:{v}") for v in LANGUAGE_LABELS],
             [("▶ Starten", "d:go"), ("✖ Verwerfen", "d:x")],
         ]
@@ -243,6 +273,8 @@ class TelegramBot:
             draft.depth = value
         elif field == "ho":
             draft.handout = not draft.handout
+        elif field == "cl":
+            draft.clarify = not draft.clarify
         elif field == "lang" and value in LANGUAGE_LABELS:
             draft.language = value
         elif field == "x":
@@ -255,7 +287,8 @@ class TelegramBot:
             request = EpisodeRequest(
                 topic=draft.topic,
                 options=EpisodeOptions(length=Length(draft.length), research_depth=ResearchDepth(draft.depth),
-                                       handout=draft.handout, language=Language(draft.language)),
+                                       handout=draft.handout, language=Language(draft.language),
+                                       clarify=draft.clarify),
             )
             job = self.service.submit(request, origin="telegram")
             # Record the status message before the first await, so the worker's
@@ -308,6 +341,11 @@ class TelegramBot:
                 if job.message:
                     lines.append(f"<i>{esc(job.message)}</i>")
             keyboard = [[("✖ Abbrechen", f"c:{job.id}")]]
+        elif job.status == "waiting":
+            count = len(clarify.pending_questions(self.service.job_dir(job.id)))
+            lines.append(f"Claude hat vor der Recherche {count} Rückfrage(n), damit die Episode in die richtige "
+                         "Richtung geht.")
+            keyboard = [[("❓ Fragen beantworten", f"a:{job.id}"), ("✖ Abbrechen", f"C:{job.id}")]]
         elif job.status == "failed":
             lines.append(f"Fehler beim Schritt <b>{STAGE_LABELS.get(job.stage, 'Start')}</b>. "
                          "„Fortsetzen“ macht dort weiter, fertige Schritte bleiben erhalten.")
@@ -361,6 +399,74 @@ class TelegramBot:
         if event == "done":
             for chat_id in sorted({m["chat_id"] for m in meta["messages"]}):
                 await self.send_episode(chat_id, job)
+        elif event == "waiting":
+            for chat_id in sorted({m["chat_id"] for m in meta["messages"]}):
+                await self.start_questions(chat_id, job)
+
+    # --- clarifying questions ---------------------------------------------------------------
+
+    def _question_view(self, job: Job, session: AnswerSession) -> tuple[str, Keyboard]:
+        i, total = session.index, len(session.questions)
+        question = session.questions[i]
+        text = f"❓ <b>Rückfrage {i + 1}/{total}</b> · {esc(job.display_title)}\n\n{esc(question['question'])}"
+        if question.get("allow_free_text", True):
+            text += ("\n\n<i>Oder schreib deine eigene Antwort einfach als Nachricht.</i>" if question["options"]
+                     else "\n\n<i>Schreib deine Antwort als Nachricht.</i>")
+        keyboard = [[(option[:60], f"q:{i}:{k}")] for k, option in enumerate(question["options"])]
+        keyboard.append([("⏭ Überspringen", f"q:{i}:s"), ("⏩ Rest überspringen", f"q:{i}:x")])
+        return text, keyboard
+
+    async def start_questions(self, chat_id: int, job: Job) -> None:
+        questions = clarify.pending_questions(self.service.job_dir(job.id))
+        if job.status != "waiting" or not questions:
+            await self.messenger.send_text(chat_id, "Für diese Episode sind keine Fragen mehr offen.")
+            return
+        session = AnswerSession(job_id=job.id, questions=questions)
+        text, keyboard = self._question_view(job, session)
+        session.message_id = await self.messenger.send_text(chat_id, text, keyboard)
+        self.sessions[chat_id] = session
+
+    async def _question_callback(self, chat_id: int, message_id: int, callback_id: str, action: str) -> None:
+        session = self.sessions.get(chat_id)
+        index, _, choice = action.partition(":")
+        if session is None or session.message_id != message_id or index != str(session.index):
+            await self.messenger.answer_callback(callback_id, "Abgelaufen – tippe auf „Fragen beantworten“")
+            return
+        await self.messenger.answer_callback(callback_id)
+        question = session.questions[session.index]
+        if choice == "x":
+            session.answers += [""] * (len(session.questions) - len(session.answers))
+            session.index = len(session.questions)
+            await self._finish_questions(chat_id, session)
+        elif choice == "s":
+            await self._record_answer(chat_id, session, "")
+        elif choice.isdigit() and int(choice) < len(question["options"]):
+            await self._record_answer(chat_id, session, question["options"][int(choice)])
+
+    async def _record_answer(self, chat_id: int, session: AnswerSession, answer: str) -> None:
+        session.answers.append(answer)
+        session.index += 1
+        if session.index >= len(session.questions):
+            await self._finish_questions(chat_id, session)
+            return
+        job = self.store.get(session.job_id)
+        text, keyboard = self._question_view(job, session)
+        await self.messenger.edit_text(chat_id, session.message_id, text, keyboard)
+
+    async def _finish_questions(self, chat_id: int, session: AnswerSession) -> None:
+        self.sessions.pop(chat_id, None)
+        try:
+            self.service.answer(session.job_id, session.answers)
+        except (JobError, ValueError) as exc:
+            await self.messenger.edit_text(chat_id, session.message_id, f"Antworten nicht gespeichert: {esc(str(exc))}")
+            return
+        lines = [f"• {esc(q['question'])}\n  → <b>{esc(a) if a else 'Claude entscheidet'}</b>"
+                 for q, a in zip(session.questions, session.answers)]
+        await self.messenger.edit_text(chat_id, session.message_id,
+                                       "✅ <b>Danke!</b> Die Recherche geht weiter.\n\n" + "\n".join(lines))
+        job = self.store.get(session.job_id)
+        for m in self._meta(session.job_id)["messages"]:
+            await self._edit_status(job, m["chat_id"], m["message_id"])
 
     # --- sending episodes -----------------------------------------------------------------
 
@@ -412,7 +518,7 @@ class TelegramBot:
         return [j for j in self.store.list(200) if j.status == "done"][:limit]
 
     async def cmd_current(self, chat_id: int) -> None:
-        active = [j for j in self.store.list(200) if j.active]
+        active = [j for j in self.store.list(200) if j.active or j.status == "waiting"]
         done = self._done_jobs(1)
         for job in sorted(active, key=lambda j: j.created_at):
             text, keyboard = self.status_text(job)
@@ -459,7 +565,7 @@ class TelegramBot:
         await self.send_episode(chat_id, job)
 
     async def cmd_status(self, chat_id: int) -> None:
-        active = sorted((j for j in self.store.list(200) if j.active), key=lambda j: j.created_at)
+        active = sorted((j for j in self.store.list(200) if j.active or j.status == "waiting"), key=lambda j: j.created_at)
         if not active:
             await self.messenger.send_text(chat_id, "Nichts in Arbeit. Schick mir ein Thema!")
             return

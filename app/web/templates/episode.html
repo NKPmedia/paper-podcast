@@ -11,10 +11,10 @@
     · {{ job.created_at | time }}
   </p>
 
-  {% if job.active or job.status in ("failed", "cancelled") %}
+  {% if job.active or job.status in ("failed", "cancelled", "waiting") %}
   <ol class="stages">
     {% for stage, done in stages %}
-    <li class="{% if done and not (job.status == 'failed' and job.stage == stage) %}done{% elif job.stage == stage and job.status == 'running' %}current{% elif job.stage == stage and job.status == 'failed' %}failed{% endif %}">{{ stage_labels[stage] }}</li>
+    <li class="{% if done and not (job.status == 'failed' and job.stage == stage) %}done{% elif job.stage == stage and job.status in ('running', 'waiting') %}current{% elif job.stage == stage and job.status == 'failed' %}failed{% endif %}">{{ stage_labels[stage] }}</li>
     {% endfor %}
   </ol>
   {% endif %}
@@ -24,6 +24,33 @@
   <p class="hint">{% if job.status == "running" and job.started_at %}<span data-elapsed="{{ job.started_at }}">läuft seit …</span> · {% endif %}Eine Episode dauert meist 10–40 Minuten. Du kannst die Seite schließen – sie wird auf dem Server fertig{% if telegram_enabled %}, und Telegram meldet sich, sobald sie da ist{% endif %}.</p>
   <div class="actions">
     <form method="post" action="/episodes/{{ job.id }}/cancel" data-confirm="Episode wirklich abbrechen? Bereits fertige Schritte bleiben erhalten und können später fortgesetzt werden."><input type="hidden" name="csrf" value="{{ csrf }}"><button>Abbrechen</button></form>
+  </div>
+  {% elif job.status == "waiting" and clarification and clarification.questions %}
+  <h2>Rückfragen von Claude</h2>
+  <p>Bevor die Recherche losgeht, möchte Claude ein paar Dinge klären, damit die Episode in die richtige Richtung geht. Wähle eine Antwort oder schreib eine eigene; offen gelassene Fragen entscheidet Claude selbst.</p>
+  <form method="post" action="/episodes/{{ job.id }}/answers" class="questions">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% for q in clarification.questions %}
+    {% set qi = loop.index0 %}
+    <fieldset>
+      <legend>{{ loop.index }}. {{ q.question }}</legend>
+      {% for option in q.options %}
+      <label class="check"><input type="radio" name="q{{ qi }}" value="{{ option }}" {% if loop.first %}checked{% endif %}> {{ option }}</label>
+      {% endfor %}
+      {% if q.allow_free_text %}
+      <label>{% if q.options %}Oder eigene Antwort{% else %}Deine Antwort{% endif %} <span class="hint">optional</span>
+        <input name="q{{ qi }}_text" maxlength="1000">
+      </label>
+      {% endif %}
+    </fieldset>
+    {% endfor %}
+    <div class="actions">
+      <button class="primary">Antworten und weiter</button>
+      <button name="skip" value="1" data-confirm="Ohne Antworten weitermachen? Claude entscheidet dann selbst.">Ohne Antworten weiter</button>
+    </div>
+  </form>
+  <div class="actions">
+    <form method="post" action="/episodes/{{ job.id }}/cancel" data-confirm="Episode wirklich abbrechen?"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Abbrechen</button></form>
   </div>
   {% elif job.status in ("failed", "cancelled") %}
   <p>{% if job.status == "failed" %}Beim Schritt <b>{{ stage_labels.get(job.stage, "Start") }}</b> ist ein Fehler aufgetreten.{% else %}Die Episode wurde abgebrochen.{% endif %}
@@ -59,7 +86,7 @@
 {% if tokens.calls or claude_calls %}
 <section class="card usage">
   <h2>Claude-Nutzung{% if job.active %} bisher{% endif %}</h2>
-  <p class="usage-total"><strong>{{ tokens.total | tokens }}</strong> Tokens{% if job.cost_usd %} · ≈ {{ job.cost_usd | money }} API-Gegenwert{% endif %} · {{ claude_calls | length }} Aufrufe</p>
+  <p class="usage-total"><strong>{{ tokens.total | tokens }}</strong> Tokens{% if job.cost_usd %} · ≈ {{ job.cost_usd | money }} API-Gegenwert{% endif %} · {{ claude_calls | length }} {{ "Aufruf" if claude_calls | length == 1 else "Aufrufe" }}</p>
   <p class="hint">Eingabe {{ tokens.input | tokens }} · Ausgabe {{ tokens.output | tokens }} · aus dem Cache gelesen {{ tokens.cache_read | tokens }} · in den Cache geschrieben {{ tokens.cache_write | tokens }}. Mit Abo wird dein Kontingent belastet; Cache-Lesezugriffe zählen dabei deutlich weniger.</p>
   <details>
     <summary>Einzelne Aufrufe</summary>
@@ -75,6 +102,17 @@
     </table>
   </details>
 </section>
+{% endif %}
+
+{% if clarification and clarification.answers %}
+<details class="card">
+  <summary><h2>Rückfragen ({{ clarification.answers | length }})</h2></summary>
+  <dl class="answers">
+    {% for item in clarification.answers %}
+    <dt>{{ item.question }}</dt><dd>{{ item.answer or "– (Claude entscheidet)" }}</dd>
+    {% endfor %}
+  </dl>
+</details>
 {% endif %}
 
 {% if timeline %}

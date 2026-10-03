@@ -8,7 +8,13 @@ You are preparing a podcast episode. Scouts have found and rated candidate sourc
 
 {{ extra_instructions }}
 {% endif %}
-# Candidates (sorted by scout score)
+{% if clarifications | default("") %}# Answers from the listener
+
+Before the research, the listener answered these questions. Follow them; they define what the episode is about.
+
+{{ clarifications }}
+
+{% endif %}# Candidates (sorted by scout score)
 
 {% for c in candidates %}- **{{ c.id }}**: {{ c.title }}{% if c.authors %} ({{ c.authors }}{% if c.year %}, {{ c.year }}{% endif %}){% elif c.year %} ({{ c.year }}){% endif %}
   Score {{ c.score }}/10, found by: {{ c.found_by | join(", ") }}. {{ c.reason }}{% if c.quote %}

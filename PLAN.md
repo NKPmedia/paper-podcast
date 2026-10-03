@@ -110,6 +110,11 @@ parallel workers, start wide then narrow) and PaperQA2 (cheap models search, the
 strong model answers). Our Python code orchestrates the steps, not an LLM, so they
 are deterministic, testable and resumable.
 
+**0. Clarifying questions** (main model, a few web searches)
+- If the topic is ambiguous or too broad, the job pauses (status `waiting`) with up to
+  10 questions, each with premade answers and optional free text. Answers come from
+  the web UI, Telegram or the CLI and are passed to every later Claude call.
+
 **1a. Scouts** (default model **Haiku**; selectable)
 - Each scout is a separate Agent SDK call. They run in parallel, using `WebSearch`,
   `WebFetch` and the `paper-research` skill (arXiv, Semantic Scholar, OpenAlex).

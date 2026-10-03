@@ -43,6 +43,8 @@ class EpisodeOptions(BaseModel):
     research_depth: ResearchDepth = ResearchDepth.medium
     handout: bool = False
     language: Language = Language.de
+    # Let Claude ask clarifying questions before the research starts (only when the topic is unclear).
+    clarify: bool = True
     extra_instructions: str = ""
     # Per-request additions to individual prompt blocks, e.g. {"style": "Very casual."}
     block_overrides: dict[str, str] = Field(default_factory=dict)
@@ -64,6 +66,22 @@ class Source(BaseModel):
     year: str = ""
     url: str = ""
     why_relevant: str = ""
+
+
+MAX_QUESTIONS = 10
+
+
+class ClarifyingQuestion(BaseModel):
+    question: str = Field(description="The question, short and concrete, in the language of the topic")
+    options: list[str] = Field(description="2 to 5 premade answers, the most likely one first")
+    allow_free_text: bool = Field(default=True, description="Whether the listener may also answer in their own words")
+
+
+class ClarificationRequest(BaseModel):
+    needs_clarification: bool = Field(description="False when the topic is clear enough to research right away")
+    reason: str = Field(description="One sentence (English) on why questions are or are not needed")
+    questions: list[ClarifyingQuestion] = Field(default_factory=list, description="At most 10 questions; empty when "
+                                                "needs_clarification is false")
 
 
 class Candidate(BaseModel):

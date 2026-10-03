@@ -18,6 +18,7 @@ from typing import Awaitable, Callable
 
 from app.claude import AgentSDKRunner, ClaudeRunner
 from app.config import Settings
+from app.errors import NeedsInput
 from app.models import EpisodeRequest
 from app.prompts import PromptStore
 from app.skills import SkillStore
@@ -197,6 +198,9 @@ async def run_pipeline(
         started = time.monotonic()
         try:
             await stage.run(ctx)
+        except NeedsInput as exc:
+            ctx.log.write("waiting", stage=stage.NAME, questions=len(exc.questions))
+            raise
         except Exception as exc:
             ctx.log.write("stage_error", stage=stage.NAME, error=f"{type(exc).__name__}: {exc}")
             raise

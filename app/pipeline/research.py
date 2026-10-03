@@ -28,6 +28,7 @@ from app.models import (
 )
 from app.papers import download_all, normalize_arxiv_id, to_index
 from app.errors import PodcastError
+from app.pipeline import clarify
 from app.prompts import render_stage
 
 NAME = "research"
@@ -169,6 +170,7 @@ async def _run_scout(ctx, angle: str, profile: DepthProfile, skills: list[str]) 
         topic=ctx.request.topic,
         extra_instructions=opts.extra_instructions,
         angle=ANGLES[angle],
+        clarifications=clarify.answers_text(ctx.job_dir),
         count=profile.candidates_per_scout,
         searches=profile.searches_per_scout,
     )
@@ -243,6 +245,7 @@ async def select_papers(ctx, candidates: list[RankedCandidate], profile: DepthPr
         extra_instructions=ctx.request.options.extra_instructions,
         candidates=candidates,
         count=profile.papers,
+        clarifications=clarify.answers_text(ctx.job_dir),
         full_reads=profile.full_reads,
     )
     model = ctx.settings.research_main_model
@@ -288,6 +291,7 @@ async def read_and_write_notes(ctx, candidates, selection, papers, profile, skil
         topic=ctx.request.topic,
         extra_instructions=ctx.request.options.extra_instructions,
         focus=selection.focus,
+        clarifications=clarify.answers_text(ctx.job_dir),
         selected=[(p, by_id[p.id], next(x for x in papers if x["id"] == p.id), i < profile.full_reads)
                   for i, p in enumerate(selection.selected)],
         others=[c for c in candidates if c.id not in selected_ids],
@@ -319,6 +323,7 @@ async def run(ctx) -> None:
     profile = PROFILES[opts.research_depth]
     skills = ctx.skills.stage_skills(NAME, opts.extra_skills)
     ctx.skills.install(ctx.job_dir, skills)
+    await clarify.run(ctx, NAME)  # may pause the job until the listener answers
 
     if ctx.path("candidates.json").exists():
         candidates = [RankedCandidate(**c) for c in _read_json(ctx.path("candidates.json"))]

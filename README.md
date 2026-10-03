@@ -114,7 +114,7 @@ The bot uses long polling, so it needs no inbound port or webhook.
 
 | Command | What it does |
 |---|---|
-| any text, or `/neu <Thema>` | Starts a new episode. Buttons for length, research depth, handout and language, then **▶ Starten**. |
+| any text, or `/neu <Thema>` | Starts a new episode. Buttons for length, research depth, handout, clarifying questions and language, then **▶ Starten**. If Claude has questions, the bot asks them one at a time. |
 | `/aktuell` | Live status of running or waiting jobs. While something is running, you get a **▶ Senden** button for the newest episode instead of the whole episode again. |
 | `/liste` | The last 10 episodes; tap a number to receive one. Episodes that did not finish come with a **🔁** resume button. (`/folge <Nr>` still works.) |
 | `/status` | The queue. |
@@ -158,6 +158,7 @@ docker compose exec app python -m app.cli new "Neue Festkörperbatterien" \
     --length mittel          # kurz (~5 min) | mittel (~12 min) | lang (~25 min)
     --depth medium           # quick | medium | deep research
     --language en            # de | en (default: the setting default_language)
+    --no-questions           # never ask clarifying questions before the research
     --extra "Fokus auf Anwendungen in E-Autos"
     --block "style=Etwas mehr Humor."   # append to a prompt block for this episode
     --skill mein-skill       # enable an extra skill
@@ -173,11 +174,27 @@ docker compose exec app python -m app.cli skills    # list skills
 
 | Stage | What happens | Output |
 |---|---|---|
-| research | 1. Scouts (Haiku, in parallel by angle) search and rank candidates. 2. The main model (Opus) selects papers. 3. Our code downloads the full texts (arXiv HTML → PDF → open-access PDF). 4. Opus reads the papers (the most important ones completely, the rest selectively) and writes notes in English | `scouts/`, `candidates.json`, `selection.json`, `papers/`, `research.md`, `sources.json` |
+| research | 0. **Clarifying questions** (see below). 1. Scouts (Haiku, in parallel by angle) search and rank candidates. 2. The main model (Opus) selects papers. 3. Our code downloads the full texts (arXiv HTML → PDF → open-access PDF). 4. Opus reads the papers (the most important ones completely, the rest selectively) and writes notes in English | `scouts/`, `candidates.json`, `selection.json`, `papers/`, `research.md`, `sources.json` |
 | script | Claude writes the dialogue from the notes and looks up details in `papers/` when needed; the result is checked (length, speakers, no formulas) and retried with feedback | `script.json` |
 | handout (optional) | Claude writes the handout body in **LaTeX**, with properly typeset formulas, tables and a glossary, plus matplotlib code for 1–3 figures. Our code renders the figures as vector PDFs in a sandbox and compiles the document with **pdflatex** under a fixed preamble. If compilation fails, Claude gets the error log and up to two repair rounds. Everything the script points to ("steht im Handout") is included | `handout/` (incl. `handout.tex`), `handout.pdf` |
 | tts | **Gemini** multi-speaker TTS (one request per chapter, both voices in one natural take) when `GEMINI_API_KEY` is set. When its free quota runs out, it switches to **Edge TTS** for the whole episode, so voices are never mixed. Without a key it uses Edge TTS: one clip per line, free, no key. Finished clips are reused on resume. | `clips/` |
 | audio | Clips joined with pauses, optional intro/outro, loudness normalized to -16 LUFS, MP3 with ID3 tags and chapters | `episode.mp3`, `episode.json` |
+
+**Clarifying questions.** Before the research starts, the main model looks at the
+topic (with up to 3 quick web searches) and decides whether it is clear. If it is not
+(an ambiguous name, a very broad topic, several candidate core papers, unclear
+audience), it asks **up to 10 questions**, each with 2–5 premade answers and, where it
+makes sense, a free-text answer. The episode then pauses with status **Rückfragen**:
+- **Web UI:** the episode page shows the questions as a form. "Ohne Antworten weiter"
+  lets Claude decide on its own.
+- **Telegram:** the bot asks the questions one at a time with answer buttons; type a
+  message to answer in your own words. "Überspringen" leaves a question to Claude.
+- **CLI (`new`, `resume`):** the questions are asked in the terminal.
+
+The answers go into every later Claude call (scouts, selection, reading, script) and
+are shown on the episode page. A clear topic gets no questions. Switch this off per
+episode with "Rückfragen erlauben" (web), the ❓ button (Telegram) or
+`--no-questions` (CLI). Everything is stored in `clarify.json`.
 
 Research depth sets the number of scouts and papers (`PROFILES` in `app/pipeline/research.py`):
 

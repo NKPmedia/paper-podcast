@@ -8,7 +8,13 @@
 
 {{ extra_instructions }}
 {% endif %}
-# Focus
+{% if clarifications | default("") %}# Answers from the listener
+
+Before the research, the listener answered these questions. Follow them; they define what the episode is about.
+
+{{ clarifications }}
+
+{% endif %}# Focus
 
 {{ focus }}
 

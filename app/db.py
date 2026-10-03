@@ -41,7 +41,7 @@ class Job:
     id: str
     topic: str
     origin: str
-    status: str  # queued | running | done | failed | cancelled
+    status: str  # queued | running | waiting | done | failed | cancelled
     stage: str
     message: str
     error: str
