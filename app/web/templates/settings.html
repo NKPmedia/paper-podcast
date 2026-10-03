@@ -9,6 +9,17 @@
       {% for s in sections %}<li><a href="#{{ s.id }}">{{ s.title }}</a></li>{% endfor %}
       <li><a href="#password">Passwort</a></li>
     </ul>
+    <div class="checks" data-checks="/settings/checks.json" aria-live="polite">
+      <h2>Verbindungen</h2>
+      {% for name, label in [("claude", "Claude"), ("gemini", "Gemini"), ("edge", "Edge-Stimmen"), ("telegram", "Telegram")] %}
+      {% set c = checks.get(name) %}
+      <div class="check-row" data-check-row="{{ name }}">
+        <span class="check-dot {{ c.state if c else 'pending' }}" data-check-state="{{ name }}" aria-hidden="true"></span>
+        <a href="#{{ {'claude': 'claude', 'gemini': 'voices', 'edge': 'voices', 'telegram': 'telegram'}[name] }}">{{ label }}</a>
+      </div>
+      {% endfor %}
+      <button type="button" class="link" data-recheck>Erneut prüfen</button>
+    </div>
     <p class="hint">Alles wird in der lokalen Datenbank gespeichert und gilt sofort – laufende Episoden nutzen ihre Einstellungen vom Start.</p>
   </nav>
 
@@ -21,9 +32,16 @@
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <h2>{{ s.title }}</h2>
       {% if s.intro %}<p class="hint">{{ s.intro | safe }}</p>{% endif %}
+      {% for name in {"claude": ["claude"], "voices": ["gemini", "edge"], "telegram": ["telegram"]}.get(s.id, []) %}
+      {% set c = checks.get(name) %}
+      <p class="check-status {{ c.state if c else 'pending' }}" data-check="{{ name }}">
+        <span class="check-dot {{ c.state if c else 'pending' }}" aria-hidden="true"></span>
+        <span data-check-message>{{ c.message if c else "Wird geprüft …" }}</span>
+      </p>
+      {% endfor %}
       {% if open_section == s.id and errors %}<div class="flash error" role="alert">Bitte prüfe die markierten Felder.</div>{% endif %}
       {% if s.id == "telegram" and settings.telegram_bot_token %}
-      <p class="status-line">{% if telegram.runner %}<span class="badge done">läuft</span>{% elif telegram.error %}<span class="badge failed">startet nicht</span> <span class="hint">{{ telegram.error }}</span>{% else %}<span class="badge">nicht gestartet</span>{% endif %}</p>
+      <p class="status-line">Bot im Server: {% if telegram.runner %}<span class="badge done">läuft</span>{% elif telegram.error %}<span class="badge failed">startet nicht</span> <span class="hint">{{ telegram.error }}</span>{% else %}<span class="badge">nicht gestartet</span>{% endif %}</p>
       {% endif %}
       <div class="fields">
         {% for f in s.fields %}

@@ -177,3 +177,20 @@ main:has(.settings-layout) { max-width: 1100px; }
   .settings-nav ul { display: flex; flex-wrap: wrap; gap: 4px; }
 }
 .error-box { color: var(--text); max-height: 420px; overflow: auto; font-size: 0.8rem; }
+/* key / service checks */
+.checks { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 8px 0; margin: 8px 0; }
+.checks h2 { font-size: 0.95rem; margin: 0 0 6px; }
+.check-row { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.check-row a { color: var(--text); text-decoration: none; }
+.check-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--border); flex: none; }
+.check-dot.ok { background: var(--ok); }
+.check-dot.warn { background: var(--warn); }
+.check-dot.error { background: var(--danger); }
+.check-dot.off { background: transparent; border: 2px solid var(--border); }
+.check-dot.pending { background: var(--border); animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .check-dot.pending { animation: none; } }
+.check-status { display: flex; gap: 8px; align-items: baseline; padding: 8px 10px; border-radius: 8px; background: var(--code-bg); margin: 6px 0 10px; }
+.check-status .check-dot { position: relative; top: 1px; }
+.check-status.error { color: var(--danger); }
+.check-status.warn { color: var(--warn); }

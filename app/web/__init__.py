@@ -25,6 +25,7 @@ from app.assets import FILES as ASSET_FILES
 from app.assets import MAX_UPLOAD_BYTES, AssetError, save_cover, save_jingle
 from app.auth import LoginThrottle, hash_password, verify_password
 from app.claude import claude_auth_configured
+from app.checks import KeyChecker
 from app.config import Settings, ensure_secrets, get_settings
 from app.errors import split_error
 from app.db import JobStore
@@ -115,6 +116,7 @@ def create_app(
     settings: Settings | None = None,
     context_factory: ContextFactory | None = None,
     start_worker: bool = True,
+    key_checker: KeyChecker | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
@@ -126,6 +128,7 @@ def create_app(
     worker = Worker(service, context_factory)
     throttle = LoginThrottle()
     feed_token = settings.feed_token
+    checker = key_checker or KeyChecker(settings)
 
     tz = ZoneInfo(settings.timezone)
 
@@ -323,12 +326,17 @@ def create_app(
                       open_section: str = "", status: int = 200) -> Response:
         return render(request, "settings.html", status, sections=settings_ui.SECTIONS, errors=errors or {},
                       form=form or {}, open_section=open_section, telegram=telegram_state,
-                      claude_ok=claude_auth_configured())
+                      claude_ok=claude_auth_configured(), checks=checker.cached())
 
     @app.get("/settings")
     async def settings_form(request: Request):
         require_user(request)
         return settings_page(request)
+
+    @app.get("/settings/checks.json")
+    async def settings_checks(request: Request, force: bool = False):
+        require_user(request)
+        return {"checks": await checker.run(force=force)}
 
     @app.post("/settings/password")
     async def settings_password(request: Request):
@@ -431,6 +439,7 @@ def create_app(
             prompt_names=[n for n in BLOCK_TITLES if n in prompts.names()],
             skills=skills.all(), stage_config=skills.stage_config(),
             claude_ok=claude_auth_configured(),
+            check_problems=[c["message"] for c in checker.cached().values() if c["state"] == "error"],
         )
 
     @app.get("/jobs.json")

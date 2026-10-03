@@ -59,6 +59,14 @@ Open the web UI. On the first visit a short **setup dialog** asks for:
   (token and models), Stimmen, Audio, Telegram, Recherche limits, Zugang & Netzwerk,
   and Passwort.
 - Changes apply immediately, and a Telegram change restarts the bot.
+- **Connection checks:** when the settings page opens, it checks in the background
+  whether the Claude token works (one tiny request with the scout model), whether
+  the Gemini key and model are valid, whether the Telegram bot token works (and a
+  chat ID is set), and whether Edge TTS is reachable.
+  - Each section shows the result with a clear message.
+  - Results are cached and re-checked when the relevant settings change, or via
+    "Erneut prüfen".
+  - A failed check also shows a banner on the start page.
 - To reset a forgotten password:
   `docker compose exec paper-podcast python -m app.cli set-password`.
 
@@ -188,7 +196,14 @@ If a download fails, the main model falls back to `WebFetch` for that paper.
 - The script agent reads the notes and opens the cited passages when it needs
   depth or checks facts.
 
-Every stage is skipped if its output already exists, and so is every research step. `log.jsonl` records timings,
+Every stage is skipped if its output already exists, and so is every research step.
+
+**Episode title:** chosen by the AI. It appears as soon as the research is done, and
+the script's final title replaces it.
+
+**Errors:** a failed episode shows a short summary of the cause, e.g. "Claude konnte
+sich nicht anmelden …" or "alle 3 Scouts …". Under "Technische Details" you find the
+original error text, Claude Code's last output lines and the full stack trace. `log.jsonl` records timings,
 Claude cost and turns, and which skills Claude actually used.
 
 ## Customizing

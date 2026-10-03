@@ -65,6 +65,32 @@
     setTimeout(tick, 3000);
   }
 
+  // Settings page: check keys and services in the background.
+  const checks = document.querySelector("[data-checks]");
+  if (checks) {
+    const states = ["ok", "warn", "error", "off", "pending"];
+    const show = (name, result) => {
+      document.querySelectorAll(`[data-check-state="${name}"], [data-check="${name}"], [data-check="${name}"] .check-dot`)
+        .forEach((el) => { states.forEach((s) => el.classList.remove(s)); el.classList.add(result.state); });
+      document.querySelectorAll(`[data-check="${name}"] [data-check-message]`)
+        .forEach((el) => { el.textContent = result.message; });
+      const row = document.querySelector(`[data-check-row="${name}"]`);
+      if (row) row.title = result.message;
+    };
+    const load = async (force) => {
+      if (force) {
+        ["claude", "gemini", "edge", "telegram"].forEach((n) => show(n, { state: "pending", message: "Wird geprüft …" }));
+      }
+      try {
+        const data = await fetchJson(checks.dataset.checks + (force ? "?force=1" : ""));
+        Object.entries(data.checks).forEach(([name, result]) => show(name, result));
+      } catch (e) { /* page still works without checks */ }
+    };
+    load(false);
+    const button = checks.querySelector("[data-recheck]");
+    if (button) button.addEventListener("click", () => load(true));
+  }
+
   // Episode list: update status badges while anything is active.
   const list = document.querySelector("[data-poll]");
   if (list && list.querySelector(".badge.queued, .badge.running")) {
