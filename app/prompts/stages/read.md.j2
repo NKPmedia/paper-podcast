@@ -22,26 +22,15 @@ Before the research, the listener answered these questions. Follow them; they de
 
 {% for q in plan.key_questions %}- {{ q }}
 {% endfor %}{% endif %}
-# Reader notes (sorted by relevance)
+# Sources to read
 
-Reading agents have read each source in its own context and extracted evidence with references into the full texts.
+The server measured every downloaded paper and set the reading depth so that everything fits into your context.
 
-{% for entry, cand, notes in papers %}## {{ cand.title }}
+{% for entry, cand in papers %}## {{ cand.title }}
 - ID: {{ cand.id }}{% if cand.authors %}, {{ cand.authors }}{% endif %}{% if cand.year %} ({{ cand.year }}){% endif %}
-{% if entry.file %}- Full text: `{{ entry.file }}` (~{{ (entry.tokens / 1000) | round(1) }}k tokens, read {{ "completely" if entry.mode == "full" else "selectively" }})
-{% else %}- No full text; read via WebFetch: {{ cand.url or cand.pdf_url or "(no URL)" }}
-{% endif %}{% if notes %}- Relevance: {{ notes.relevance }}/10
-
-**Summary.** {{ notes.summary }}
-
-**Evidence.**
-{{ notes.evidence }}
-
-**Podcast material.**
-{{ notes.podcast_material }}
-
-**Limitations.** {{ notes.limitations }}
-{% else %}- The reader for this source failed. {% if entry.file %}Read the key sections of the full text yourself if it matters.{% else %}Use WebFetch if it matters.{% endif %}
+{% if entry.file %}- Full text: `{{ entry.file }}` (~{{ (entry.tokens / 1000) | round(1) }}k tokens)
+- Reading depth: {% if entry.mode == "full" %}**complete**{% else %}**selective** (too long for the remaining budget){% endif %}
+{% else %}- No full text could be downloaded. Use WebFetch with specific questions (at most 4 fetches): {{ cand.url or cand.pdf_url or ("https://arxiv.org/abs/" ~ cand.arxiv_id if cand.arxiv_id else "(find the URL)") }}
 {% endif %}
 {% endfor %}{% if others %}
 # Sources not read (only if needed)
@@ -50,13 +39,15 @@ Reading agents have read each source in its own context and extracted evidence w
 {% endfor %}{% endif %}
 # Your task
 
-You are the lead researcher. Turn the reader notes into the single research basis for the script.
-
-1. **Cross-check.** Compare the notes: where do sources agree, where do they contradict each other? Resolve contradictions, or record them as open.
-2. **Verify.** Spot-check the central claims and every number you will rely on in the full texts (Read with `offset`/`limit` at the referenced lines). If a note and the paper disagree, the paper wins.
-3. **Fill gaps.** For every key question that the notes do not answer well, run targeted searches (WebSearch or WebFetch, **at most {{ searches }}**), e.g. for current reception, critique or applications.
-4. Return:
+1. **Get each paper's outline first:** Grep the file for its headings (pattern `^#`, with line numbers) so you know where each section starts.
+2. **Read the papers with the Read tool**, in chunks with `offset` and `limit` (about 600 lines per call), most important first:
+   - **complete**: read the whole paper from start to end. Skip only the reference list and appendices unrelated to the key questions.
+   - **selective**: read the abstract, introduction, method overview, main results and conclusion; open other sections only when they answer a key question directly.
+3. **Cross-check** the sources: where do they agree, where do they contradict each other? Resolve contradictions, or record them as open.
+4. **Fill gaps.** For every key question the papers do not answer well, run targeted searches (WebSearch or WebFetch, **at most {{ searches }}**), e.g. for current reception, critique or applications.
+5. **Cite with location.** The script will be written later by another model that reads your notes and looks things up in the full texts when needed. Back every concrete claim, number and example with a source tag **and** its location in the full text, i.e. file and line range as the Read tool shows it: `[Gu 2023, papers/arxiv_2312.00752.md:210-245]`. For sources without a full-text file, the tag and URL are enough.
+6. Return:
    - `title_suggestion`: the episode title **in {{ language_name }}**: short (at most 60 characters), concrete and intriguing. It appears in the episode list, in Telegram and in the podcast feed.
-   - `notes`: detailed research notes **in English** as Markdown, organized by the key questions; they are the only basis for the script. Include the focus, key claims, methods explained clearly, concrete results and numbers, context and related work, critique and limitations, good examples and analogies for a lay audience, open questions, and important formulas with a plain-language explanation. **Keep the references** from the reader notes (`[Tag, file:lines]`) on every claim; the script writer opens them to look up details.
-   - `podcast_material` (in English): the best of the readers' podcast material: vivid examples, analogies, surprising findings, anecdotes, verbatim quotes and contested points. At least eight entries, each with its reference.
+   - `notes`: detailed research notes **in English** as Markdown, organized by the key questions; they are the only basis for the script. Include the focus, key claims, methods explained clearly, concrete results and numbers, context and related work, critique and limitations, good examples and analogies for a lay audience, open questions, and important formulas with a plain-language explanation.
+   - `podcast_material` (in English): what makes a conversation lively and would get lost in a plain summary: vivid examples from the papers, good analogies for lay listeners, surprising results or side findings, anecdotes about how the work came about, memorable quotes (verbatim, in the original language), and contested points. At least eight entries, each with its location.
    - `sources`: every source you actually used, with title, authors, year, URL and `why_relevant` (in English).

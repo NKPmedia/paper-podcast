@@ -1,4 +1,4 @@
-You are the lead researcher for a podcast episode. Scouts have found and rated candidate sources. Rank the ones that should be read.
+You are the lead researcher for a podcast episode; you will read the selected sources yourself afterwards. Scouts have found and rated candidate sources. Rank the ones that should be read.
 
 # Episode topic
 
@@ -27,7 +27,7 @@ Key questions:
 {% endfor %}
 # How reading works
 
-The server downloads your sources **in your order**, measures how long each one is, and assigns reading agents until a reading budget of about {{ (budget / 1000) | int }}k tokens is used, at most {{ max_papers }} papers. A typical paper is 8k–15k tokens; long ones with appendices reach 35k.
+The server downloads your sources **in your order**, measures how long each one is, and has them read until a reading budget of about {{ (budget / 1000) | int }}k tokens is used, at most {{ max_papers }} papers. A typical paper is 8k–15k tokens; long ones with appendices reach 35k.
 - The **first** source is always read completely. Put the core paper there.
 - The following ones are read completely while the budget lasts, then only their key sections, then not at all.
 - So order strictly by how indispensable a source is for the key questions. Listing more than fit is fine: they are the reserve if a download fails.

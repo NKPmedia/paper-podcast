@@ -55,13 +55,6 @@ PLAN = {
          "avoid": ""},
     ],
 }
-NOTES = {
-    "relevance": 9,
-    "summary": "Das Paper zeigt Ergebnis A.",
-    "evidence": "- Ergebnis A [Muster 2024, papers/arxiv_2401.00001.md:5-9]",
-    "podcast_material": "- Analogie: Staffellauf [Muster 2024, papers/arxiv_2401.00001.md:12-14]",
-    "limitations": "Nur ein Datensatz.",
-}
 
 
 HANDOUT = {
@@ -88,7 +81,6 @@ def default_responses(script: dict | None = None) -> dict:
         "ScoutResult": [SCOUT] * 10,
         "Selection": [SELECTION],
         "ResearchPlan": [PLAN] * 3,
-        "PaperNotes": [NOTES] * 20,
         "ResearchResult": [RESEARCH],
         "Script": [script or make_script(words_per_line=4)],
     }

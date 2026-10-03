@@ -11,11 +11,8 @@ Every step writes its artifact, so an interrupted job resumes where it stopped.
 4.  Download the full texts as Markdown (our code)        → ``papers/*.md``, ``papers/index.json``
 5.  Reading budget: from the measured length of every paper
     decide how many are read, and which completely         → ``reading.json``
-6.  Readers (parallel, one fresh context per paper) extract
-    evidence for the key questions with line references and
-    a relevance score                                     → ``papers/*.notes.json``
-7.  Synthesis: the lead model cross-checks the reader notes,
-    verifies in the full texts, fills gaps, writes the notes → ``research.md``, ``sources.json``
+6.  Reading: the lead model reads them (completely or the key
+    sections), cross-checks, fills gaps, writes the notes  → ``research.md``, ``sources.json``
 """
 
 from __future__ import annotations
@@ -30,7 +27,6 @@ from app.claude import ClaudeCall
 from app.errors import PodcastError
 from app.models import (
     Candidate,
-    PaperNotes,
     RankedCandidate,
     ResearchDepth,
     ResearchPlan,
@@ -40,7 +36,7 @@ from app.models import (
     Selection,
     json_schema,
 )
-from app.papers import download_all, file_key, normalize_arxiv_id, to_index
+from app.papers import download_all, normalize_arxiv_id, to_index
 from app.pipeline import clarify
 from app.prompts import render_stage
 
@@ -48,13 +44,10 @@ NAME = "research"
 DESCRIPTION = "Claude recherchiert das Thema"
 
 SCOUT_TOOLS = ["WebSearch", "WebFetch", "Read"]
-# Grep lets readers pull a paper's outline (its Markdown headings) before reading.
-READER_TOOLS = ["Read", "Grep", "WebFetch"]
-LEAD_TOOLS = ["Read", "Grep", "WebSearch", "WebFetch"]
+# Grep lets the main model pull a paper's outline (its Markdown headings) before reading.
+READ_TOOLS = ["Read", "Grep", "WebSearch", "WebFetch"]
 MAX_CANDIDATES = 30  # merged shortlist shown to the selection
-READER_TURNS = 20  # outline + ~6 reads of 600 lines + the answer, with headroom
-READER_CONCURRENCY = 3
-LEAD_SEARCHES = 5  # gap-filling searches during the synthesis
+GAP_SEARCHES = 5  # gap-filling searches while reading
 
 # Token estimates for the reading budget (about 4 characters per token).
 CHARS_PER_TOKEN = 4
@@ -75,17 +68,17 @@ class DepthProfile:
     scout_turns: int  # searches + skill/reference reads + a few metadata look-ups + the answer
     shortlist: int  # sources the selection ranks; downloaded in that order
     max_papers: int  # at most this many are read
-    read_budget: int  # tokens of paper text all readers together may read
-    lead_turns: int  # synthesis: reading notes, spot checks, gap searches, the answer
+    read_budget: int  # tokens of paper text the main model reads in total
+    main_turns: int  # ~3 Read calls per complete paper + gap searches + the answer, with headroom
 
 
 # A typical paper is 8k–15k tokens; long ones with appendices reach the 35k cap
-# (``paper_max_chars``). Each reader has its own context, so the budget limits
-# time and quota, not context size.
+# (``paper_max_chars``). One model reads everything in one context window, so the
+# budget leaves room for the prompt, the outlines, searches and the notes it writes.
 PROFILES = {
-    ResearchDepth.quick: DepthProfile(1, 2, 8, 5, 12, shortlist=4, max_papers=3, read_budget=60_000, lead_turns=25),
-    ResearchDepth.medium: DepthProfile(2, 4, 8, 5, 12, shortlist=7, max_papers=5, read_budget=140_000, lead_turns=40),
-    ResearchDepth.deep: DepthProfile(3, 6, 10, 7, 14, shortlist=10, max_papers=8, read_budget=260_000, lead_turns=60),
+    ResearchDepth.quick: DepthProfile(1, 2, 8, 5, 12, shortlist=4, max_papers=3, read_budget=45_000, main_turns=30),
+    ResearchDepth.medium: DepthProfile(2, 4, 8, 5, 12, shortlist=7, max_papers=5, read_budget=90_000, main_turns=50),
+    ResearchDepth.deep: DepthProfile(3, 6, 10, 7, 14, shortlist=10, max_papers=7, read_budget=130_000, main_turns=70),
 }
 
 
@@ -359,71 +352,30 @@ def measure(ctx, papers: list[dict]) -> list[dict]:
     return papers
 
 
-# --- 6. Readers ------------------------------------------------------------------------
+# --- 6. Reading ------------------------------------------------------------------------
 
 
-def notes_path(ctx, paper_id: str):
-    return ctx.path(f"papers/{file_key(paper_id)}.notes.json")
-
-
-async def _read_one(ctx, entry: dict, cand: RankedCandidate, plan: ResearchPlan | None, focus: str,
-                    skills: list[str], semaphore: asyncio.Semaphore) -> PaperNotes | None:
-    path = notes_path(ctx, entry["id"])
-    if path.exists():
-        return PaperNotes.model_validate(_read_json(path))
-    async with semaphore:
-        prompt = render_stage("reader", plan=plan, focus=focus, entry=entry, cand=cand, **_common(ctx))
-        model = ctx.settings.research_reader_model
-        try:
-            result = await ctx.claude.run(ClaudeCall(
-                prompt=prompt, cwd=ctx.job_dir, tools=READER_TOOLS, skills=skills,
-                system_append=ctx.blocks["system"], output_schema=json_schema(PaperNotes),
-                max_turns=READER_TURNS, model=model,
-            ))
-            notes = PaperNotes.model_validate(result.structured)
-        except Exception as exc:  # one failed reader must not stop the research
-            ctx.log.write("reader_failed", stage=NAME, paper=entry["id"], error=f"{type(exc).__name__}: {exc}")
-            return None
-    _log_claude(ctx, f"reader:{cand.title[:40]}", model, result, relevance=notes.relevance, mode=entry["mode"])
-    _write_json(path, notes.model_dump())
-    return notes
-
-
-async def run_readers(ctx, reading, by_id, plan, focus, skills) -> dict[str, PaperNotes]:
-    todo = [e for e in reading if e["mode"] != "skipped"]
-    full = sum(1 for e in todo if e["mode"] == "full")
-    tokens = sum(e["cost"] for e in todo)
-    size = f"{tokens / 1000:.0f}k" if tokens >= 1000 else str(tokens)
-    await ctx.notify(NAME, f"{len(todo)} Leser lesen parallel je ein Paper ({full} komplett, ~{size} Tokens)")
-    semaphore = asyncio.Semaphore(READER_CONCURRENCY)
-    results = await asyncio.gather(*(
-        _read_one(ctx, e, by_id[e["id"]], plan, focus, skills, semaphore) for e in todo
-    ))
-    return {e["id"]: n for e, n in zip(todo, results) if n is not None}
-
-
-# --- 7. Synthesis ------------------------------------------------------------------------
-
-
-async def synthesize(ctx, candidates, selection, plan, reading, notes, profile, skills) -> ResearchResult:
-    await ctx.notify(NAME, f"Claude führt die Notizen aus {len(notes)} Paper(n) zusammen und prüft sie")
-    by_id = {c.id: c for c in candidates}
+async def read_and_write_notes(ctx, candidates, selection, plan, reading, profile, skills) -> ResearchResult:
     read = [e for e in reading if e["mode"] != "skipped"]
-    read.sort(key=lambda e: -(notes[e["id"]].relevance if e["id"] in notes else -1))
+    full = sum(1 for e in read if e["mode"] == "full")
+    tokens = sum(e["cost"] for e in read)
+    size = f"{tokens / 1000:.0f}k" if tokens >= 1000 else str(tokens)
+    await ctx.notify(NAME, f"Claude liest {len(read)} Paper ({full} komplett, ~{size} Tokens)")
+    by_id = {c.id: c for c in candidates}
     read_ids = {e["id"] for e in read}
     prompt = render_stage(
         "read", blocks=ctx.blocks, plan=plan, focus=selection.focus,
-        papers=[(e, by_id[e["id"]], notes.get(e["id"])) for e in read],
+        papers=[(e, by_id[e["id"]]) for e in read],
         others=[c for c in candidates if c.id not in read_ids][:15],
-        searches=LEAD_SEARCHES, language_name=ctx.request.options.language.english_name, **_common(ctx),
+        searches=GAP_SEARCHES, language_name=ctx.request.options.language.english_name, **_common(ctx),
     )
     model = ctx.settings.research_main_model
     result = await ctx.claude.run(ClaudeCall(
-        prompt=prompt, cwd=ctx.job_dir, tools=LEAD_TOOLS, skills=skills, system_append=ctx.blocks["system"],
-        output_schema=json_schema(ResearchResult), max_turns=profile.lead_turns, model=model,
+        prompt=prompt, cwd=ctx.job_dir, tools=READ_TOOLS, skills=skills, system_append=ctx.blocks["system"],
+        output_schema=json_schema(ResearchResult), max_turns=profile.main_turns, model=model,
     ))
     research = ResearchResult.model_validate(result.structured)
-    _log_claude(ctx, "synthesis", model, result, sources=len(research.sources))
+    _log_claude(ctx, "read", model, result, sources=len(research.sources))
     return research
 
 
@@ -482,8 +434,7 @@ async def run(ctx) -> None:
         ctx.log.write("reading", stage=NAME, budget=profile.read_budget, used=sum(e["cost"] for e in chosen),
                       papers=[{k: e[k] for k in ("title", "tokens", "mode", "reason")} for e in reading])
 
-    notes = await run_readers(ctx, reading, by_id, plan, selection.focus, skills)
-    research = await synthesize(ctx, candidates, selection, plan, reading, notes, profile, skills)
+    research = await read_and_write_notes(ctx, candidates, selection, plan, reading, profile, skills)
     await ctx.set_title(research.title_suggestion)
     ctx.path("research.md").write_text(
         f"# {research.title_suggestion}\n\n{research.notes.strip()}\n\n"

@@ -78,7 +78,7 @@ def _describe(entry: dict) -> tuple[str, str, str]:
         return "info", entry.get("message", ""), ""
     if event == "claude":
         step = entry.get("step", "")
-        step = step.replace("scout:", "Scout ").replace("reader:", "Leser ") if step else ""
+        step = step.replace("scout:", "Scout ") if step else ""
         if entry.get("attempt", 1) and entry.get("attempt", 1) > 1:
             step = f"{step} Versuch {entry['attempt']}".strip()
         tokens = call_tokens(entry)
@@ -89,8 +89,6 @@ def _describe(entry: dict) -> tuple[str, str, str]:
                            ("words", "Wörter"), ("questions", "Fragen")):
             if entry.get(key) is not None:
                 parts.append(f"{entry[key]} {label}")
-        if entry.get("relevance") is not None:
-            parts.append(f"Relevanz {entry['relevance']:g}/10")
         if entry.get("skills_used"):
             parts.append("Skills: " + ", ".join(entry["skills_used"]))
         detail = "\n".join(entry.get("problems") or [])
@@ -121,8 +119,6 @@ def _describe(entry: dict) -> tuple[str, str, str]:
         detail = "\n".join(f"{p.get('title', '')[:70]} · {fmt_tokens(p.get('tokens'))} Tokens · {p.get('reason', '')}"
                            for p in papers)
         return "info", text, detail
-    if event == "reader_failed":
-        return "warn", f"Leser für {entry.get('paper', '')} fehlgeschlagen", entry.get("error", "")
     if event == "scout_failed":
         return "error", f"Scout {entry.get('angle', '')} fehlgeschlagen", entry.get("error", "")
     if event == "downloads":

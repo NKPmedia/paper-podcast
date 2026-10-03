@@ -54,7 +54,6 @@ class Settings(BaseModel):
     # Claude models per role: alias (haiku, sonnet, opus) or a full model ID
     research_scout_model: str = "haiku"
     research_main_model: str = "opus"
-    research_reader_model: str = "sonnet"  # reads one paper each, in parallel
     script_model: str = "opus"
     claude_max_turns_script: int = 40
 

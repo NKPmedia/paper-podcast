@@ -174,7 +174,7 @@ docker compose exec app python -m app.cli skills    # list skills
 
 | Stage | What happens | Output |
 |---|---|---|
-| research | 0. **Clarifying questions** (see below). 1. **Plan:** Opus writes a research brief (focus, key questions) and one task per scout. 2. **Scouts** (Haiku, in parallel) search and rank candidates. 3. **Selection:** Opus ranks the sources to read. 4. Our code **downloads and measures** the full texts (arXiv HTML → PDF → open-access PDF). 5. A **reading budget** decides from the measured lengths how many papers are read, and which completely. 6. **Readers** (Sonnet, in parallel, one paper each in a fresh context) extract evidence for the key questions with line references and a relevance score. 7. **Synthesis:** Opus cross-checks the reader notes, verifies central numbers in the full texts, fills gaps with a few searches and writes the notes in English | `clarify.json`, `plan.json`, `scouts/`, `candidates.json`, `selection.json`, `papers/` (incl. `*.notes.json`), `reading.json`, `research.md`, `sources.json` |
+| research | 0. **Clarifying questions** (see below). 1. **Plan:** Opus writes a research brief (focus, key questions) and one task per scout. 2. **Scouts** (Haiku, in parallel) search and rank candidates. 3. **Selection:** Opus ranks the sources to read. 4. Our code **downloads and measures** the full texts (arXiv HTML → PDF → open-access PDF). 5. A **reading budget** decides from the measured lengths how many papers are read, and which completely. 6. **Reading:** Opus reads them (completely or the key sections), cross-checks them, fills gaps with a few searches and writes the notes in English | `clarify.json`, `plan.json`, `scouts/`, `candidates.json`, `selection.json`, `papers/`, `reading.json`, `research.md`, `sources.json` |
 | script | Claude writes the dialogue from the notes and looks up details in `papers/` when needed; the result is checked (length, speakers, no formulas) and retried with feedback | `script.json` |
 | handout (optional) | Claude writes the handout body in **LaTeX**, with properly typeset formulas, tables and a glossary, plus matplotlib code for 1–3 figures. Our code renders the figures as vector PDFs in a sandbox and compiles the document with **pdflatex** under a fixed preamble. If compilation fails, Claude gets the error log and up to two repair rounds. Everything the script points to ("steht im Handout") is included | `handout/` (incl. `handout.tex`), `handout.pdf` |
 | tts | **Gemini** multi-speaker TTS (one request per chapter, both voices in one natural take) when `GEMINI_API_KEY` is set. When its free quota runs out, it switches to **Edge TTS** for the whole episode, so voices are never mixed. Without a key it uses Edge TTS: one clip per line, free, no key. Finished clips are reused on resume. | `clips/` |
@@ -200,9 +200,9 @@ Research depth sets the effort (`PROFILES` in `app/pipeline/research.py`):
 
 | Depth | Scouts (the plan picks) | Searches per scout | Sources ranked | Papers read at most | Reading budget |
 |---|---|---|---|---|---|
-| `quick` | 1–2 | 5 | 4 | 3 | ~60k tokens |
-| `medium` | 2–4 | 5 | 7 | 5 | ~140k tokens |
-| `deep` | 3–6 | 7 | 10 | 8 | ~260k tokens |
+| `quick` | 1–2 | 5 | 4 | 3 | ~45k tokens |
+| `medium` | 2–4 | 5 | 7 | 5 | ~90k tokens |
+| `deep` | 3–6 | 7 | 10 | 7 | ~130k tokens |
 
 **How many papers are read depends on their length.** After the download, every paper
 is measured (about 4 characters per token; a typical paper is 8k–15k tokens, long ones
@@ -215,8 +215,8 @@ are capped at 35k by `paper_max_chars`). In the order the selection ranked them:
 - everything after that, or beyond the paper limit, is not read.
 
 So a topic with short papers gets more of them; one with long papers gets fewer.
-The episode page shows the length, reading mode and the reader's relevance score of
-every paper under "So wurde recherchiert", together with the plan.
+The episode page shows the length and reading mode of every paper under
+"So wurde recherchiert", together with the plan.
 
 **Why this design.** It follows how established deep-research systems work:
 - Anthropic's [multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system):
@@ -228,14 +228,12 @@ every paper under "So wurde recherchiert", together with the plan.
 - OpenAI and Gemini deep research: clarifying questions, then a written research plan.
 - [STORM](https://arxiv.org/abs/2402.14207): research from several distinct perspectives,
   here one per scout.
-- [PaperQA2](https://github.com/Future-House/paper-qa): every source is summarized
-  against the question and scored for relevance before the final answer
-  ("RCS": reranking and contextual summarization), plus citation traversal (a scout
+- [PaperQA2](https://github.com/Future-House/paper-qa): citation traversal (a scout
   perspective for deep research).
 
-Each reader has its own context, so the reading budget limits time and Claude quota,
-not context size. The synthesis only reads the compact reader notes and opens full
-texts for spot checks.
+One model reads all selected papers in a single context. The reading budget keeps
+the papers, the prompt and the notes together inside Claude's context window, so
+nothing read early gets compacted away.
 
 `research.md` is the handover to the script step:
 - Every claim is cited with a pointer into the full text, e.g.

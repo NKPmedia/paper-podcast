@@ -57,7 +57,7 @@ async def test_full_pipeline(settings):
     assert "Festkörperbatterien" in scout.prompt
     (read,) = claude.calls_for("ResearchResult")
     assert read.model == "opus" and "papers/arxiv_2401.00001.md" in read.prompt
-    assert "Keep the references" in read.prompt and "podcast_material" in read.prompt
+    assert "Cite with location" in read.prompt and "podcast_material" in read.prompt
     (script_call,) = claude.calls_for("Script")
     assert script_call.model == "opus"
     assert script_call.skills == ["podcast-dialogue", "tts-friendly-text", "fact-check"]

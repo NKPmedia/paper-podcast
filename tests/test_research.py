@@ -209,47 +209,42 @@ async def test_medium_research_flow(settings):
     selection = json.loads((job_dir / "selection.json").read_text())
     assert [s["id"] for s in selection["selected"]] == ["arxiv:2401.00001", "title:blogpost"]
     (select_call,) = claude.calls_for("Selection")
-    assert "reading budget of about 140k tokens" in select_call.prompt
+    assert "reading budget of about 90k tokens" in select_call.prompt
 
     index = json.loads((job_dir / "papers/index.json").read_text())
     assert index[0]["file"] and not index[1]["file"] and "HTTP 404" in index[1]["error"]
     reading = json.loads((job_dir / "reading.json").read_text())
     assert [e["mode"] for e in reading] == ["full", "webfetch"] and reading[0]["tokens"] > 0
 
-    readers = claude.calls_for("PaperNotes")
-    assert len(readers) == 2 and all(c.model == "sonnet" for c in readers)
-    assert "Read the whole paper" in readers[0].prompt and "papers/arxiv_2401.00001.md" in readers[0].prompt
-    assert "Use WebFetch with specific questions" in readers[1].prompt and "blog.example.org/p" in readers[1].prompt
-    assert (job_dir / "papers" / "arxiv_2401.00001.notes.json").exists()
-
-    (lead,) = claude.calls_for("ResearchResult")
-    assert lead.model == "opus" and lead.tools == ["Read", "Grep", "WebSearch", "WebFetch"]
-    assert "Das Paper zeigt Ergebnis A." in lead.prompt and "Relevance: 9" in lead.prompt
-    assert "Cross-check" in lead.prompt and "papers/arxiv_2401.00001.md" in lead.prompt
-    assert any("Scout" in n for n in notes) and any("2 Leser lesen parallel" in n for n in notes)
+    (read,) = claude.calls_for("ResearchResult")  # one model reads everything, no reader agents
+    assert read.model == "opus" and read.tools == ["Read", "Grep", "WebSearch", "WebFetch"]
+    assert "papers/arxiv_2401.00001.md" in read.prompt and "Reading depth: **complete**" in read.prompt
+    assert "Use WebFetch with specific questions (at most 4 fetches): https://blog.example.org/p" in read.prompt
+    assert "Cross-check" in read.prompt and "Cite with location" in read.prompt
+    assert any("Scout" in n for n in notes) and any("Claude liest 2 Paper (1 komplett" in n for n in notes)
 
 
 def test_reading_budget_uses_measured_lengths():
     from app.pipeline.research import PROFILES, plan_reading, selective_tokens
 
-    profile = PROFILES[ResearchDepth.medium]  # 140k budget, at most 5 papers
+    profile = PROFILES[ResearchDepth.medium]  # 90k budget, at most 5 papers
     papers = [
         {"id": "a", "file": "papers/a.md", "tokens": 30_000},  # core: always complete
         {"id": "b", "file": "papers/b.md", "tokens": 12_000},
         {"id": "c", "file": "", "tokens": 0},  # no full text: WebFetch
-        {"id": "d", "file": "papers/d.md", "tokens": 35_000},
-        {"id": "e", "file": "papers/e.md", "tokens": 60_000},  # too long for the rest: selective
+        {"id": "d", "file": "papers/d.md", "tokens": 20_000},
+        {"id": "e", "file": "papers/e.md", "tokens": 35_000},  # too long for the rest: selective
         {"id": "f", "file": "papers/f.md", "tokens": 9_000},  # over the paper limit
     ]
     reading = plan_reading(papers, profile)
     assert [e["mode"] for e in reading] == ["full", "full", "webfetch", "full", "selective", "skipped"]
-    assert sum(e["cost"] for e in reading) == 30_000 + 12_000 + 4_000 + 35_000 + selective_tokens(60_000)
+    assert sum(e["cost"] for e in reading) == 30_000 + 12_000 + 4_000 + 20_000 + selective_tokens(35_000)
     assert sum(e["cost"] for e in reading) <= profile.read_budget
     assert "Höchstzahl" in reading[-1]["reason"]
 
     # A huge core paper is still read completely; nothing else fits after it.
     many = [{"id": str(i), "file": f"papers/{i}.md", "tokens": 70_000 if i == 0 else 8_000} for i in range(7)]
-    quick = plan_reading(many, PROFILES[ResearchDepth.quick])  # 60k budget, 3 papers
+    quick = plan_reading(many, PROFILES[ResearchDepth.quick])  # 45k budget, 3 papers
     assert quick[0]["mode"] == "full" and all(e["mode"] == "skipped" for e in quick[1:])
 
 
@@ -268,8 +263,7 @@ async def test_research_resumes_and_resets(settings):
 
     # Forcing the research stage starts from scratch.
     fresh = default_responses()
-    claude.responses.update({k: fresh[k] for k in ("ScoutResult", "Selection", "ResearchResult", "Script",
-                                                   "PaperNotes")})
+    claude.responses.update({k: fresh[k] for k in ("ScoutResult", "Selection", "ResearchResult", "Script")})
     await run_pipeline(ctx, from_stage="research")
     assert len(claude.calls_for("ScoutResult")) == 4 and len(claude.calls_for("Selection")) == 2
     assert len(claude.calls_for("ResearchPlan")) == 2
@@ -343,8 +337,8 @@ def test_short_papers_fill_the_budget():
     from app.pipeline.research import PROFILES, plan_reading
 
     short = [{"id": str(i), "file": f"papers/{i}.md", "tokens": 9_000} for i in range(10)]
-    deep = plan_reading(short, PROFILES[ResearchDepth.deep])  # 260k budget, at most 8 papers
-    assert [e["mode"] for e in deep].count("full") == 8  # short papers: the paper limit applies first
+    deep = plan_reading(short, PROFILES[ResearchDepth.deep])  # 130k budget, at most 7 papers
+    assert [e["mode"] for e in deep].count("full") == 7  # short papers: the paper limit applies first
     long = [{"id": str(i), "file": f"papers/{i}.md", "tokens": 35_000} for i in range(10)]
     modes = [e["mode"] for e in plan_reading(long, PROFILES[ResearchDepth.deep])]
-    assert modes.count("full") == 7 and modes.count("selective") == 1  # long papers: the budget applies first
+    assert modes.count("full") == 3 and modes.count("selective") == 1  # long papers: the budget applies first

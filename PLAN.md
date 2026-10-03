@@ -111,8 +111,7 @@ Modelled on established deep-research systems:
   searches start wide then narrow, and workers write results to files.
 - OpenAI and Gemini deep research: clarifying questions, then a research plan.
 - STORM: perspective-guided research.
-- PaperQA2: per-source contextual summaries with relevance scores, and citation
-  traversal.
+- PaperQA2: citation traversal.
 
 Our Python code orchestrates the steps, not an LLM, so they are deterministic,
 testable and resumable.
@@ -147,23 +146,17 @@ testable and resumable.
 - Every paper is measured (characters / 4 ≈ tokens).
 - In ranked order:
   - the first paper is read completely;
-  - the next ones completely while the budget (60k / 140k / 260k tokens) lasts;
+  - the next ones completely while the budget (45k / 90k / 130k tokens) lasts;
   - a paper too long for the rest is read selectively;
   - a source without full text is read with a few WebFetch questions;
-  - the rest are skipped; at most 3/5/8 papers are read.
+  - the rest are skipped; at most 3/5/7 papers are read.
+- The budget keeps everything inside one context window.
 
-**6. Readers** (default **Sonnet**, parallel, max 3 at a time) → `papers/*.notes.json`
-- One fresh context per paper: it greps the outline, reads the paper completely or
-  selectively, and returns a relevance score, a summary, evidence per key question
-  with `[Tag, file:lines]` references, podcast material, and limitations.
-- A failed reader does not stop the research.
-
-**7. Synthesis** (main model) → `research.md`, `sources.json`
-- Reads the reader notes sorted by relevance, cross-checks them, and spot-checks
-  central numbers in the full texts.
-- Fills gaps with at most 5 searches.
-- Writes English notes organized by key question, keeping the references, plus
-  the podcast material.
+**6. Reading and notes** (main model) → `research.md`, `sources.json`
+- Greps each paper's outline, then reads it completely or selectively.
+- Cross-checks the sources and fills gaps with at most 5 searches.
+- Writes English notes organized by key question, with a `[Tag, file:lines]`
+  reference on every claim, plus the podcast material.
 
 **Handover to the script step.**
 - Research and script stay separate calls: this keeps the script context small,
@@ -174,7 +167,7 @@ testable and resumable.
   If a note and the paper disagree, the paper wins.
 
 **Configuration** (settings, later also editable in the web UI):
-- Scout model `haiku`, reader model `sonnet`, main model `opus`, script model `opus`.
+- Scout model `haiku`, main model `opus`, script model `opus`.
 - Scout range, searches, shortlist size, paper limit and reading budget per depth
   (`PROFILES`).
 - `max_turns` per role.

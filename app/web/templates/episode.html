@@ -94,7 +94,7 @@
       <thead><tr><th>Schritt</th><th>Modell</th><th>Runden</th><th>Eingabe</th><th>Ausgabe</th><th>Cache</th><th>Gesamt</th><th>Kosten</th></tr></thead>
       <tbody>
       {% for c in claude_calls %}
-      <tr><td>{{ stage_labels.get(c.stage, c.stage) }}{% if c.step %} · {{ c.step.replace("scout:", "Scout ").replace("reader:", "Leser ") }}{% endif %}{% if c.attempt and c.attempt > 1 %} · Versuch {{ c.attempt }}{% endif %}</td>
+      <tr><td>{{ stage_labels.get(c.stage, c.stage) }}{% if c.step %} · {{ c.step.replace("scout:", "Scout ") }}{% endif %}{% if c.attempt and c.attempt > 1 %} · Versuch {{ c.attempt }}{% endif %}</td>
         <td>{{ c.model or "" }}</td><td>{{ c.turns }}</td><td>{{ c.token_row.input | tokens }}</td><td>{{ c.token_row.output | tokens }}</td>
         <td>{{ (c.token_row.cache_read + c.token_row.cache_write) | tokens }}</td><td>{{ c.token_row.total | tokens }}</td><td>{{ c.cost_usd | money }}</td></tr>
       {% endfor %}
@@ -175,15 +175,14 @@
   {% if reading %}
   {% set used = reading | sum(attribute="cost") %}
   <h3>Lesen nach Länge</h3>
-  <p class="hint">Die ausgewählten Paper wurden heruntergeladen und vermessen. Danach wurde entschieden, wie viele gelesen werden und welche komplett: {{ (used / 1000) | round | int }}k von {{ reading_budget_k }}k Tokens Lesebudget genutzt. Jedes Paper liest ein eigener Leser.</p>
+  <p class="hint">Die ausgewählten Paper wurden heruntergeladen und vermessen. Danach wurde entschieden, wie viele gelesen werden und welche komplett: {{ (used / 1000) | round | int }}k von {{ reading_budget_k }}k Tokens Lesebudget genutzt.</p>
   <table class="calls">
-    <thead><tr><th>Paper</th><th>Länge</th><th>Gelesen</th><th>Relevanz</th></tr></thead>
+    <thead><tr><th>Paper</th><th>Länge</th><th>Gelesen</th></tr></thead>
     <tbody>
     {% for r in reading %}
     <tr><td>{{ r.title or r.id }}<br><span class="hint">{{ r.reason }}</span></td>
       <td>{% if r.tokens %}{{ (r.tokens / 1000) | round(1) }}k{% else %}–{% endif %}</td>
-      <td>{{ {"full": "komplett", "selective": "Kernabschnitte", "webfetch": "per Webabruf", "skipped": "nicht gelesen"}[r.mode] }}</td>
-      <td>{% if r.relevance is not none %}{{ r.relevance | round | int }}/10{% endif %}</td></tr>
+      <td>{{ {"full": "komplett", "selective": "Kernabschnitte", "webfetch": "per Webabruf", "skipped": "nicht gelesen"}[r.mode] }}</td></tr>
     {% endfor %}
     </tbody>
   </table>
