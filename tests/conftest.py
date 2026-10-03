@@ -100,6 +100,7 @@ class FakeClaude:
             cost_usd=0.01,
             num_turns=3,
             skills_used=list(call.skills[:1]),
+            tokens={"input": 1000, "output": 200, "cache_read": 5000, "cache_write": 300},
         )
 
 

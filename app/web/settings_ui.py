@@ -45,6 +45,9 @@ SECTIONS: tuple[Section, ...] = (
         Field("expert_name", "Experte bzw. Expertin", setup=True, required=True),
         Field("words_per_minute", "Sprechtempo (Wörter pro Minute)", "int", min=80, max=220,
               help="Daraus berechnet sich die Ziel-Wortzahl des Skripts für kurz, mittel und lang."),
+        Field("default_language", "Standardsprache neuer Episoden", "select", options=(
+            ("de", "Deutsch"), ("en", "Englisch")),
+              help="Vorauswahl im Formular und in Telegram; pro Episode änderbar."),
     )),
     Section("claude", "Claude", "Zugang und Modelle für Recherche und Skript.", (
         Field("claude_code_oauth_token", "Claude-Token", "secret", setup=True, required=True, placeholder="sk-ant-oat01-…",
@@ -69,8 +72,12 @@ SECTIONS: tuple[Section, ...] = (
         Field("gemini_voice_expert", "Gemini-Stimme Experte", help="z.B. Charon, Puck, Orus"),
         Field("edge_voice_host", "Edge-Stimme Host"),
         Field("edge_voice_expert", "Edge-Stimme Experte",
-              help="Deutsche Stimmen z.B. de-DE-SeraphinaMultilingualNeural, de-DE-FlorianMultilingualNeural, "
+              help="Für deutsche Episoden, z.B. de-DE-SeraphinaMultilingualNeural, de-DE-FlorianMultilingualNeural, "
                    "de-DE-KatjaNeural, de-DE-ConradNeural."),
+        Field("edge_voice_host_en", "Edge-Stimme Host (Englisch)"),
+        Field("edge_voice_expert_en", "Edge-Stimme Experte (Englisch)",
+              help="Für englische Episoden, z.B. en-US-AvaMultilingualNeural, en-US-AndrewMultilingualNeural, "
+                   "en-GB-SoniaNeural, en-GB-RyanNeural. Die Gemini-Stimmen sprechen beide Sprachen."),
         Field("edge_concurrency", "Parallele Edge-Anfragen", "int", min=1, max=10),
     )),
     Section("audio", "Audio", "Pausen, Lautheit und Qualität. Intro, Outro und Cover lädst du unter "
@@ -98,7 +105,8 @@ SECTIONS: tuple[Section, ...] = (
         Field("download_max_mb", "Max. Dateigröße pro Paper (MB)", "int", min=1, max=200),
         Field("download_timeout_s", "Zeitlimit pro Download (s)", "int", min=5, max=600),
         Field("paper_max_chars", "Max. Länge eines Volltexts (Zeichen)", "int", min=10_000, max=2_000_000,
-              help="Längere Texte werden gekürzt, damit Claude sie vollständig lesen kann."),
+              help="Längere Texte werden gekürzt, damit mehrere Paper zusammen in Claudes Kontext passen. "
+                   "150.000 Zeichen (etwa 35.000 Tokens) reichen für den Hauptteil fast jedes Papers."),
     )),
     Section("access", "Zugang & Netzwerk", "", (
         Field("public_base_url", "Öffentliche Adresse", "url", placeholder="https://podcast.example.org",

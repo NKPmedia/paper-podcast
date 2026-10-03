@@ -116,7 +116,7 @@ class KeyChecker:
         model = self.settings.research_scout_model
         with tempfile.TemporaryDirectory() as tmp:
             try:
-                await self.claude.run(ClaudeCall(prompt="Antworte nur mit dem Wort OK.", cwd=Path(tmp), tools=[],
+                await self.claude.run(ClaudeCall(prompt="Reply with the single word OK.", cwd=Path(tmp), tools=[],
                                                  max_turns=1, model=model))
             except PodcastError as exc:
                 return CheckResult("error", exc.message)

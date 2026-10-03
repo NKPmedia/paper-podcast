@@ -21,7 +21,7 @@ from app.auth import hash_password
 from app.config import get_settings, save_settings
 from app.db import JobStore
 from app.jobs import JobService
-from app.models import EpisodeOptions, EpisodeRequest, Length, ResearchDepth
+from app.models import EpisodeOptions, EpisodeRequest, Language, Length, ResearchDepth
 from app.pipeline import STAGE_NAMES, create_job, load_context, run_pipeline
 from app.prompts import BLOCK_DESCRIPTIONS, PromptStore
 from app.skills import SkillStore
@@ -62,6 +62,8 @@ def main(argv: list[str] | None = None) -> int:
         new.add_argument("--length", choices=[x.value for x in Length], default=Length.mittel.value)
         new.add_argument("--depth", choices=[x.value for x in ResearchDepth], default=ResearchDepth.medium.value)
         new.add_argument("--handout", action="store_true", help="Handout als PDF erstellen")
+        new.add_argument("--language", choices=[x.value for x in Language], default=None,
+                         help="Sprache der Episode (Standard: Einstellung default_language)")
         new.add_argument("--extra", default="", help="Zusätzliche Wünsche für diese Episode")
         new.add_argument("--block", action="append", default=[], metavar="BLOCK=TEXT",
                          help="Text an einen Prompt-Block anhängen (mehrfach möglich)")
@@ -117,6 +119,7 @@ def main(argv: list[str] | None = None) -> int:
                 length=Length(args.length),
                 research_depth=ResearchDepth(args.depth),
                 handout=args.handout,
+                language=Language(args.language or settings.default_language),
                 extra_instructions=args.extra,
                 block_overrides=_parse_kv(args.block),
                 extra_skills=args.skill,

@@ -57,10 +57,18 @@ class EpisodeContext:
         self.log = EpisodeLog(self.job_dir / "log.jsonl")
 
     async def notify(self, stage: str, message: str) -> None:
+        self.log.write("progress", stage=stage, message=message)
         if self.progress:
             maybe = self.progress(stage, message)
             if maybe is not None:
                 await maybe
+
+    def log_claude(self, stage: str, model: str, result, **extra) -> None:
+        """One ``claude`` log entry per call: model, cost, turns, tokens, skills."""
+        self.log.write(
+            "claude", stage=stage, model=model, cost_usd=result.cost_usd, turns=result.num_turns,
+            tokens=getattr(result, "tokens", {}) or {}, skills_used=result.skills_used, **extra,
+        )
 
     async def set_title(self, title: str) -> None:
         title = " ".join((title or "").split())[:120]
@@ -100,6 +108,8 @@ def prompt_context(settings: Settings, request: EpisodeRequest) -> dict:
         "minutes": minutes,
         "target_words": minutes * settings.words_per_minute,
         "research_depth": request.options.research_depth.value,
+        "language": request.options.language.value,
+        "language_name": request.options.language.english_name,
         "handout": request.options.handout,
     }
 
@@ -129,15 +139,16 @@ def load_context(
     tts: TTSProvider | None = None,
 ) -> EpisodeContext:
     data = json.loads((job_dir / "request.json").read_text(encoding="utf-8"))
+    request = EpisodeRequest.model_validate(data["request"])
     return EpisodeContext(
         job_dir=job_dir,
-        request=EpisodeRequest.model_validate(data["request"]),
+        request=request,
         blocks=data["blocks"],
         prompt_context=data["context"],
         settings=settings,
         skills=SkillStore(settings.skills_dir, settings.data_dir / "skills.json"),
         claude=claude or AgentSDKRunner(),
-        tts=tts or make_tts(settings),
+        tts=tts or make_tts(settings, request.options.language.value),
     )
 
 

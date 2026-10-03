@@ -60,13 +60,16 @@ class Settings(BaseModel):
     # Paper downloads (full texts for the main research agent)
     download_max_mb: int = 20
     download_timeout_s: int = 60
-    paper_max_chars: int = 250_000
+    # ~150k characters ≈ 35k tokens: the main body of almost any paper fits, while
+    # several papers together still fit Claude's context when they are read.
+    paper_max_chars: int = 150_000
 
     # Podcast
     podcast_name: str = "Paper Podcast"
     host_name: str = "Lena"
     expert_name: str = "Dr. Jonas"
     words_per_minute: int = 140
+    default_language: str = "de"  # de | en: preselected language for new episodes
 
     # Speech: auto = Gemini if a Gemini key is set (Edge as fallback), else Edge
     tts_provider: str = "auto"  # auto | edge | gemini
@@ -76,6 +79,8 @@ class Settings(BaseModel):
     gemini_voice_expert: str = "Charon"
     edge_voice_host: str = "de-DE-SeraphinaMultilingualNeural"
     edge_voice_expert: str = "de-DE-FlorianMultilingualNeural"
+    edge_voice_host_en: str = "en-US-AvaMultilingualNeural"
+    edge_voice_expert_en: str = "en-US-AndrewMultilingualNeural"
     edge_concurrency: int = 3
     edge_proxy: str | None = None
 

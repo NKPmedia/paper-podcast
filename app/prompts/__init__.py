@@ -76,7 +76,7 @@ class PromptStore:
             text = Environment(undefined=StrictUndefined).from_string(self.raw(name)).render(**context)
             extra = block_overrides.get(name, "").strip()
             if extra:
-                text = f"{text.rstrip()}\n\nZusätzlich für diese Episode:\n{extra}\n"
+                text = f"{text.rstrip()}\n\nAdditionally for this episode:\n{extra}\n"
             blocks[name] = text.strip()
         return blocks
 

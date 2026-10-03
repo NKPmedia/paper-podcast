@@ -28,14 +28,14 @@ class TTSProvider(Protocol):
     async def synthesize(self, script: Script, out_dir: Path) -> list[Clip]: ...
 
 
-def make_tts(settings: Settings) -> TTSProvider:
+def make_tts(settings: Settings, language: str = "de") -> TTSProvider:
     """``auto``: Gemini (with Edge as fallback) when GEMINI_API_KEY is set, else Edge."""
     from app.tts.edge import EdgeTTS
 
-    edge = EdgeTTS(settings)
+    edge = EdgeTTS(settings, language)
     use_gemini = settings.tts_provider == "gemini" or (settings.tts_provider == "auto" and settings.gemini_api_key)
     if use_gemini and settings.gemini_api_key:
         from app.tts.gemini import FallbackTTS, GeminiTTS
 
-        return FallbackTTS(GeminiTTS(settings), edge)
+        return FallbackTTS(GeminiTTS(settings, language=language), edge)
     return edge

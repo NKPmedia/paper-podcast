@@ -1,6 +1,6 @@
 ---
 name: paper-research
-description: Wissenschaftliche Paper finden und bewerten – über die APIs von arXiv, Semantic Scholar und OpenAlex (per WebFetch). Nutzen beim Recherchieren eines Papers oder Forschungsthemas.
+description: Find and rate scientific papers via the arXiv, Semantic Scholar and OpenAlex APIs (with WebFetch). Use when researching a paper or research topic.
 ---
 
 # Paper research

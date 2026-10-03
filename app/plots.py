@@ -71,22 +71,22 @@ def check_code(code: str) -> None:
     try:
         tree = ast.parse(code)
     except SyntaxError as exc:
-        raise PlotRejected(f"Syntaxfehler: {exc}") from exc
+        raise PlotRejected(f"Syntax error: {exc}") from exc
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             names = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or ""]
             for name in names:
                 if name.split(".")[0] not in ALLOWED_MODULES:
-                    raise PlotRejected(f"Import nicht erlaubt: {name} (nur matplotlib, numpy, math)")
+                    raise PlotRejected(f"Import not allowed: {name} (only matplotlib, numpy, math)")
         elif isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
-            raise PlotRejected(f"Nicht erlaubt: {node.id}")
+            raise PlotRejected(f"Not allowed: {node.id}")
         elif isinstance(node, ast.Attribute):
             if node.attr.startswith("_"):
-                raise PlotRejected(f"Nicht erlaubt: .{node.attr}")
+                raise PlotRejected(f"Not allowed: .{node.attr}")
             if node.attr in FORBIDDEN_ATTRS:
-                raise PlotRejected(f"Nicht erlaubt: .{node.attr}() – der Runner speichert die Abbildung selbst")
+                raise PlotRejected(f"Not allowed: .{node.attr}() – the runner saves the figure itself")
         elif isinstance(node, (ast.Global, ast.Nonlocal)):
-            raise PlotRejected("global/nonlocal ist nicht erlaubt")
+            raise PlotRejected("global/nonlocal is not allowed")
 
 
 def _limits() -> None:  # runs in the child before exec

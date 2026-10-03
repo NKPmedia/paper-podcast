@@ -21,6 +21,17 @@ class Length(str, Enum):
         return {"kurz": 5, "mittel": 12, "lang": 25}[self.value]
 
 
+class Language(str, Enum):
+    """Language of everything listeners see and hear (script, titles, handout)."""
+
+    de = "de"
+    en = "en"
+
+    @property
+    def english_name(self) -> str:
+        return {"de": "German", "en": "English"}[self.value]
+
+
 class ResearchDepth(str, Enum):
     quick = "quick"
     medium = "medium"
@@ -31,8 +42,9 @@ class EpisodeOptions(BaseModel):
     length: Length = Length.mittel
     research_depth: ResearchDepth = ResearchDepth.medium
     handout: bool = False
+    language: Language = Language.de
     extra_instructions: str = ""
-    # Per-request additions to individual prompt blocks, e.g. {"style": "Sehr locker."}
+    # Per-request additions to individual prompt blocks, e.g. {"style": "Very casual."}
     block_overrides: dict[str, str] = Field(default_factory=dict)
     # Extra skills to enable for this request on top of the stage defaults.
     extra_skills: list[str] = Field(default_factory=list)
@@ -60,13 +72,13 @@ class Candidate(BaseModel):
     title: str
     authors: str = ""
     year: str = ""
-    arxiv_id: str = Field(default="", description="z.B. 1706.03762, leer wenn nicht auf arXiv")
+    arxiv_id: str = Field(default="", description="e.g. 1706.03762; empty if not on arXiv")
     doi: str = ""
-    url: str = Field(default="", description="Landing page oder Abstract-Seite")
-    pdf_url: str = Field(default="", description="Direkter Link zum Volltext-PDF, falls bekannt")
-    score: float = Field(ge=0, le=10, description="Relevanz für die Episode, 0 bis 10")
-    reason: str = Field(description="Ein Satz, warum die Quelle relevant ist")
-    quote: str = Field(default="", description="Wörtliches Zitat aus dem Abstract")
+    url: str = Field(default="", description="Landing page or abstract page")
+    pdf_url: str = Field(default="", description="Direct link to the full-text PDF, if known")
+    score: float = Field(ge=0, le=10, description="Relevance for the episode, 0 to 10")
+    reason: str = Field(description="One sentence on why the source is relevant")
+    quote: str = Field(default="", description="Verbatim quote from the abstract")
 
 
 class ScoutResult(BaseModel):
@@ -79,22 +91,22 @@ class RankedCandidate(Candidate):
 
 
 class SelectedPaper(BaseModel):
-    id: str = Field(description="ID aus der Kandidatenliste, z.B. arxiv:1706.03762")
+    id: str = Field(description="ID from the candidate list, e.g. arxiv:1706.03762")
     reason: str
 
 
 class Selection(BaseModel):
-    focus: str = Field(description="Ein bis zwei Sätze: Fokus und roter Faden der Episode")
+    focus: str = Field(description="One or two sentences: the focus and common thread of the episode")
     selected: list[SelectedPaper]
 
 
 class ResearchResult(BaseModel):
-    title_suggestion: str = Field(description="Titel für die Episode auf Deutsch: kurz (höchstens 60 Zeichen), "
-                                              "konkret und neugierig machend")
-    notes: str = Field(description="Ausführliche Recherche-Notizen als Markdown")
+    title_suggestion: str = Field(description="Episode title in the episode language: short (at most 60 "
+                                              "characters), concrete and intriguing")
+    notes: str = Field(description="Detailed research notes as Markdown, in English")
     podcast_material: str = Field(
-        description="Markdown: Beispiele, Analogien, überraschende Fakten, Anekdoten und "
-        "prägnante Zitate für den Podcast, jeweils mit Beleg"
+        description="Markdown, in English: examples, analogies, surprising facts, anecdotes and "
+        "memorable quotes for the podcast, each with its reference"
     )
     sources: list[Source]
 
@@ -105,7 +117,7 @@ class ResearchResult(BaseModel):
 class Line(BaseModel):
     speaker: Literal["host", "expert"]
     text: str
-    style: str = Field(default="", description="Optionaler Sprechstil, z.B. neugierig")
+    style: str = Field(default="", description="Optional speaking style, e.g. curious, thoughtful, excited")
 
 
 class Chapter(BaseModel):
@@ -114,14 +126,14 @@ class Chapter(BaseModel):
 
 
 class Script(BaseModel):
-    title: str = Field(description="Episodentitel auf Deutsch: kurz (höchstens 60 Zeichen), konkret und neugierig "
-                                   "machend – kein bloßes Wiederholen des Themas, kein Doppelpunkt-Untertitel nötig")
-    summary: str = Field(description="Zwei bis drei Sätze Shownotes")
+    title: str = Field(description="Episode title in the episode language: short (at most 60 characters), concrete "
+                                   "and intriguing; not a restatement of the topic, no colon subtitle needed")
+    summary: str = Field(description="Show notes in the episode language: two or three sentences")
     chapters: list[Chapter]
     handout_items: list[str] = Field(
         default_factory=list,
-        description="Formeln, Tabellen oder Abbildungen, auf die im Gespräch verwiesen wird "
-        "und die ins Handout gehören (leer, wenn es kein Handout gibt)",
+        description="Formulas, tables or figures the conversation refers to and that belong "
+        "in the handout (empty when there is no handout)",
     )
 
     def iter_lines(self):
@@ -138,21 +150,21 @@ class Script(BaseModel):
 
 
 class Plot(BaseModel):
-    name: str = Field(description="Kurzer Bezeichner aus Kleinbuchstaben, Ziffern und Bindestrichen")
-    caption: str = Field(description="Bildunterschrift als LaTeX-Text inklusive Quelle bzw. 'schematisch'")
-    code: str = Field(description="matplotlib-Code, der genau eine Abbildung zeichnet (ohne savefig/show)")
+    name: str = Field(description="Short identifier of lowercase letters, digits and hyphens")
+    caption: str = Field(description="Caption as LaTeX text, including the source or a note that the figure is schematic")
+    code: str = Field(description="matplotlib code that draws exactly one figure (no savefig/show)")
 
 
 class Handout(BaseModel):
     latex_body: str = Field(
-        description="Inhalt des Handouts als LaTeX (nur der Dokumentkörper, ohne Präambel); "
-        "Abbildungen als eigene Zeile mit \\plot{name}"
+        description="The handout content as LaTeX (document body only, no preamble); "
+        "figures on their own line as \\plot{name}"
     )
     plots: list[Plot] = Field(default_factory=list)
 
 
 class HandoutFix(BaseModel):
-    latex_body: str = Field(description="Der vollständige, korrigierte LaTeX-Dokumentkörper")
+    latex_body: str = Field(description="The complete, corrected LaTeX document body")
 
 
 class PlotFixes(BaseModel):

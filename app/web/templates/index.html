@@ -20,6 +20,9 @@
       <label>Recherche-Tiefe
         <select name="depth">{% for value, label in depths.items() %}<option value="{{ value }}" {% if value == "medium" %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
       </label>
+      <label>Sprache
+        <select name="language">{% for value, label in languages.items() %}<option value="{{ value }}" {% if value == settings.default_language %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+      </label>
     </div>
     <label class="check"><input type="checkbox" name="handout"> Handout als PDF – mit Abbildungen und den Formeln, die im Gespräch nur in Worten erklärt werden</label>
     <label>Zusätzliche Wünsche <span class="hint">optional</span>

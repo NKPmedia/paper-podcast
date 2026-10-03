@@ -92,6 +92,8 @@ class ClaudeResult:
     cost_usd: float | None
     num_turns: int
     skills_used: list[str]
+    # Token usage summed over all turns and models: input, output, cache_read, cache_write.
+    tokens: dict[str, int] = field(default_factory=dict)
 
 
 class ClaudeRunner(Protocol):
@@ -173,7 +175,36 @@ class AgentSDKRunner:
             cost_usd=result.total_cost_usd,
             num_turns=result.num_turns,
             skills_used=skills_used,
+            tokens=token_usage(result.model_usage, result.usage),
         )
+
+
+TOKEN_KEYS = {
+    "input": ("inputTokens", "input_tokens"),
+    "output": ("outputTokens", "output_tokens"),
+    "cache_read": ("cacheReadInputTokens", "cache_read_input_tokens"),
+    "cache_write": ("cacheCreationInputTokens", "cache_creation_input_tokens"),
+}
+
+
+def token_usage(model_usage: dict | None, usage: dict | None) -> dict[str, int]:
+    """Tokens of one Claude Code run. ``model_usage`` (per model, camelCase) also counts
+    helper models, so it wins over the plain ``usage`` dict when present."""
+    if model_usage:
+        rows = list(model_usage.values())
+        index = 0
+    elif usage:
+        rows = [usage]
+        index = 1
+    else:
+        return {}
+    totals = {key: 0 for key in TOKEN_KEYS}
+    for row in rows:
+        for key, names in TOKEN_KEYS.items():
+            value = row.get(names[index]) if isinstance(row, dict) else None
+            if isinstance(value, (int, float)):
+                totals[key] += int(value)
+    return totals
 
 
 def _short(value: Any, limit: int = 160) -> str:

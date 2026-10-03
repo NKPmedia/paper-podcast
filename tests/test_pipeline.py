@@ -25,12 +25,12 @@ def test_validate_script():
     script = Script.model_validate(make_script())
     assert validate(script, target_words=script.word_count) == []
     problems = validate(script, target_words=script.word_count * 3)
-    assert any("zu kurz" in p for p in problems)
+    assert any("too short" in p for p in problems)
     one_speaker = make_script()
     for ch in one_speaker["chapters"]:
         for line in ch["lines"]:
             line["speaker"] = "host"
-    assert any("Beide Sprecher" in p for p in validate(Script.model_validate(one_speaker), 144))
+    assert any("Both speakers" in p for p in validate(Script.model_validate(one_speaker), 144))
 
 
 async def test_full_pipeline(settings):
@@ -47,7 +47,7 @@ async def test_full_pipeline(settings):
     assert mp3.exists() and mp3.stat().st_size > 1000
     research_md = (job / "research.md").read_text()
     assert research_md.startswith("# Testthema")
-    assert "## Material für den Podcast\n\n- Analogie: wie ein Staffellauf" in research_md
+    assert "## Podcast material\n\n- Analogie: wie ein Staffellauf" in research_md
     assert json.loads((job / "sources.json").read_text())[0]["title"] == "Ein Paper"
     assert (job / "papers" / "arxiv_2401.00001.md").exists()
 
@@ -57,13 +57,13 @@ async def test_full_pipeline(settings):
     assert "Festkörperbatterien" in scout.prompt
     (read,) = claude.calls_for("ResearchResult")
     assert read.model == "opus" and "papers/arxiv_2401.00001.md" in read.prompt
-    assert "Belege mit Fundstelle" in read.prompt and "podcast_material" in read.prompt
+    assert "Cite with location" in read.prompt and "podcast_material" in read.prompt
     (script_call,) = claude.calls_for("Script")
     assert script_call.model == "opus"
-    assert script_call.skills == ["german-podcast-dialogue", "tts-friendly-text", "fact-check"]
+    assert script_call.skills == ["podcast-dialogue", "tts-friendly-text", "fact-check"]
     assert "Ergebnis A" in script_call.prompt and "Mit Humor." in script_call.prompt
     assert script_call.tools == ["Read"]
-    assert "# Volltexte zum Nachschlagen" in script_call.prompt
+    assert "# Full texts for reference" in script_call.prompt
     assert "`papers/arxiv_2401.00001.md`: Ein Paper (" in script_call.prompt
     assert "Staffellauf" in script_call.prompt
     assert (job / ".claude/skills/fact-check/SKILL.md").exists()
@@ -95,7 +95,7 @@ async def test_script_retry_with_feedback(settings):
     await run_pipeline(ctx)
     first, retry = claude.calls_for("Script")
     assert retry.resume == f"session-{claude.calls.index(first) + 1}"
-    assert "zu kurz" in retry.prompt
+    assert "too short" in retry.prompt
 
 
 async def test_from_stage_reruns_later_stages(settings):
@@ -134,7 +134,7 @@ def _with_line(text: str, **extra) -> Script:
 ])
 def test_written_formulas_are_rejected(text):
     problems = validate(_with_line(text), target_words=50)
-    assert any("Formel" in p for p in problems)
+    assert any("formula" in p for p in problems)
 
 
 def test_spoken_explanation_is_fine():
@@ -145,6 +145,6 @@ def test_spoken_explanation_is_fine():
 def test_handout_references_need_a_handout():
     script = _with_line("Die genaue Formel findet ihr im Handout.", handout_items=["Attention-Formel"])
     problems = validate(script, target_words=script.word_count, handout=False)
-    assert any("verweist auf ein Handout" in p for p in problems)
+    assert any("refers to a handout" in p for p in problems)
     assert any("handout_items" in p for p in problems)
     assert validate(script, target_words=script.word_count, handout=True) == []

@@ -1,38 +1,42 @@
 {{ blocks.research }}
 
-# Thema der Episode
+# Episode topic
 
 {{ topic }}
 {% if extra_instructions %}
-# Zusätzliche Wünsche
+# Additional requests
 
 {{ extra_instructions }}
 {% endif %}
-# Fokus
+# Focus
 
 {{ focus }}
 
-# Ausgewählte Quellen
+# Selected sources
 
-{% for sel, cand, paper in selected %}## {{ cand.title }}
+{% for sel, cand, paper, full in selected %}## {{ cand.title }}
 - ID: {{ cand.id }}{% if cand.authors %}, {{ cand.authors }}{% endif %}{% if cand.year %} ({{ cand.year }}){% endif %}
-- Warum ausgewählt: {{ sel.reason }}
-{% if paper.file %}- Volltext: `{{ paper.file }}` ({{ paper.lines }} Zeilen{% if paper.truncated %}, gekürzt{% endif %}; Quelle {{ paper.source_url }})
-{% else %}- Volltext konnte nicht geladen werden. Nutze WebFetch mit gezielten Fragen: {{ cand.url or cand.pdf_url or ("https://arxiv.org/abs/" ~ cand.arxiv_id if cand.arxiv_id else "(URL suchen)") }}
+- Why selected: {{ sel.reason }}
+- Reading depth: {% if full %}**complete**{% else %}selective{% endif %}
+{% if paper.file %}- Full text: `{{ paper.file }}` ({{ paper.lines }} lines{% if paper.truncated %}, truncated{% endif %}; source {{ paper.source_url }})
+{% else %}- The full text could not be downloaded. Use WebFetch with specific questions: {{ cand.url or cand.pdf_url or ("https://arxiv.org/abs/" ~ cand.arxiv_id if cand.arxiv_id else "(find the URL)") }}
 {% endif %}
 {% endfor %}{% if others %}
-# Weitere Kandidaten (nur bei Bedarf)
+# Other candidates (only if needed)
 
 {% for c in others %}- {{ c.id }}: {{ c.title }}{% if c.year %} ({{ c.year }}){% endif %}{% if c.url %}, {{ c.url }}{% endif %}
 {% endfor %}{% endif %}
-# Dein Auftrag
+# Your task
 
-1. **Lies jede Volltext-Datei vollständig** mit dem Read-Tool. Lange Dateien liest du abschnittsweise (Parameter `offset` und `limit`, zum Beispiel 800 Zeilen pro Aufruf), bis du am Ende angekommen bist. Überspringe nichts außer Literaturverzeichnis und Anhängen ohne Bezug zum Thema.
-2. Baue dir ein tiefes Verständnis auf: Fragestellung, Methode, Ergebnisse mit Zahlen, Grenzen, Zusammenhänge zwischen den Arbeiten.
-3. Schließe verbleibende Lücken gezielt mit WebSearch oder WebFetch, zum Beispiel aktuelle Einordnung, Kritik oder Anwendungen.
-4. **Belege mit Fundstelle.** Das Skript wird später von einem anderen Modell geschrieben, das deine Notizen liest und bei Bedarf in den Volltexten nachschlägt. Belege deshalb jede konkrete Aussage, Zahl und jedes Beispiel mit Quellenkürzel **und** Fundstelle im Volltext, also Datei und Zeilenbereich, wie ihn das Read-Tool anzeigt: `[Gu 2023, papers/arxiv_2312.00752.md:210-245]`. Für Quellen ohne Volltext-Datei genügen Kürzel und URL.
-5. Liefere:
-   - `title_suggestion`: der Titel der Episode – kurz (höchstens 60 Zeichen), konkret und neugierig machend; er erscheint in der Episodenliste, in Telegram und im Podcast-Feed
-   - `notes`: ausführliche Recherche-Notizen auf Deutsch als Markdown, die einzige Grundlage für das Skript. Enthalten sein müssen: Fokus, Kernaussagen, Methoden verständlich erklärt, konkrete Ergebnisse und Zahlen (jeweils mit Quellenkürzel wie [Vaswani 2017]), Kontext und verwandte Arbeiten, Kritik und Grenzen, gute Beispiele und Analogien für Laien, offene Fragen. Wichtige Formeln hältst du fest, zusammen mit einer Erklärung in Worten, was sie bedeuten.
-   - `podcast_material`: das, was ein Gespräch lebendig macht und in einer reinen Zusammenfassung verloren ginge: anschauliche Beispiele aus den Papern, gute Analogien für Laien, überraschende Ergebnisse oder Nebenbefunde, Anekdoten zur Entstehung, prägnante Zitate (wörtlich) und strittige Punkte. Mindestens acht Einträge, jeder mit Fundstelle.
-   - `sources`: alle tatsächlich verwendeten Quellen mit Titel, Autor*innen, Jahr, URL und Relevanz
+1. **Get each paper's outline first:** Grep the file for its headings (pattern `^#`, with line numbers) so you know where each section starts.
+2. **Read the papers with the Read tool**, in chunks with `offset` and `limit` (about 600 lines per call):
+   - Reading depth **complete**: read the whole paper from start to end. Skip only the reference list and appendices that are unrelated to the topic.
+   - Reading depth **selective**: read the abstract, introduction, method overview, main results and conclusion; open other sections only when they matter for the focus.
+3. Build a deep understanding: research question, method, results with numbers, limitations, and how the papers relate to each other.
+4. Close remaining gaps with a few targeted WebSearch or WebFetch calls, e.g. current reception, critique or applications.
+5. **Cite with location.** The script will be written later by another model that reads your notes and looks things up in the full texts when needed. So back every concrete claim, number and example with a source tag **and** its location in the full text, i.e. file and line range as the Read tool shows it: `[Gu 2023, papers/arxiv_2312.00752.md:210-245]`. For sources without a full-text file, the tag and URL are enough.
+6. Return:
+   - `title_suggestion`: the episode title **in {{ language_name }}**: short (at most 60 characters), concrete and intriguing. It appears in the episode list, in Telegram and in the podcast feed.
+   - `notes`: detailed research notes **in English** as Markdown; they are the only basis for the script. Include: the focus, key claims, methods explained clearly, concrete results and numbers (each with a source tag like [Vaswani 2017]), context and related work, critique and limitations, good examples and analogies for a lay audience, open questions. Record important formulas together with a plain-language explanation of what they mean.
+   - `podcast_material` (in English): what makes a conversation lively and would get lost in a plain summary: vivid examples from the papers, good analogies for lay listeners, surprising results or side findings, anecdotes about how the work came about, memorable quotes (verbatim, in the original language), and contested points. At least eight entries, each with its location.
+   - `sources`: every source you actually used, with title, authors, year, URL and `why_relevant` (in English).

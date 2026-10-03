@@ -1,3 +1,4 @@
+import json
 import asyncio
 import io
 import re
@@ -72,7 +73,7 @@ def test_create_episode_runs_through_worker(web_settings):
         login(client)
         response = client.post("/episodes", data={
             "csrf": csrf(client), "topic": "Festkörperbatterien", "length": "kurz", "depth": "quick",
-            "extra": "Fokus Autos", "block_style": "Mehr Humor.",
+            "extra": "Fokus Autos", "block_style": "Mehr Humor.", "language": "en",
         })
         assert response.status_code == 200 and "Festkörperbatterien" in response.text
         job_id = response.url.path.rsplit("/", 1)[1]
@@ -86,14 +87,19 @@ def test_create_episode_runs_through_worker(web_settings):
 
         page = client.get(f"/episodes/{job_id}")
         assert "Testepisode" in page.text and "<audio" in page.text and "Kapitel 1" in page.text
-        assert "Material für den Podcast" in page.text  # rendered research notes
+        assert "Podcast material" in page.text  # rendered research notes
+        assert "Claude-Nutzung" in page.text and "Tokens" in page.text  # token usage
+        assert "Ablauf" in page.text and "Recherche gestartet" in page.text  # process log
         audio = client.get(f"/episodes/{job_id}/audio", headers={"Range": "bytes=0-99"})
         assert audio.status_code == 206 and len(audio.content) == 100
 
         store = JobStore(web_settings.db_path)
         job = store.get(job_id)
         assert job.title == "Testepisode" and job.cost_usd > 0 and job.duration_s > 0
-        assert "Mehr Humor." in (web_settings.episodes_dir / job_id / "request.json").read_text()
+        request_json = json.loads((web_settings.episodes_dir / job_id / "request.json").read_text())
+        assert "Mehr Humor." in request_json["blocks"]["style"]
+        assert request_json["request"]["options"]["language"] == "en"
+        assert "in English" in request_json["blocks"]["system"]
 
         # re-run from the audio stage, then delete
         client.post(f"/episodes/{job_id}/retry", data={"csrf": csrf(client), "from_stage": "audio"})

@@ -57,9 +57,10 @@ def chunk_lines(lines: list[tuple[str, str]], limit: int = MAX_CHUNK_CHARS) -> l
 class GeminiTTS:
     name = "gemini"
 
-    def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None):
+    def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None, language: str = "de"):
         self.settings = settings
         self.client = client
+        self.language = language
         host = speaker_label(settings.host_name, "Host")
         expert = speaker_label(settings.expert_name, "Expert")
         if host == expert:
@@ -69,10 +70,11 @@ class GeminiTTS:
     def _body(self, chunk: list[tuple[str, str]]) -> dict:
         host, expert = self.labels["host"], self.labels["expert"]
         transcript = "\n".join(f"{self.labels[speaker]}: {text}" for speaker, text in chunk)
+        language = "English" if self.language == "en" else "German"
         prompt = (
-            f"Lies das folgende Gespräch aus dem deutschen Wissenschafts-Podcast „{self.settings.podcast_name}“ "
-            f"natürlich und im lockeren Gesprächston vor. {host} ist neugierig und warm, {expert} ruhig, "
-            f"kompetent und begeistert.\n\n{transcript}"
+            f"Read the following conversation from the {language}-language science podcast "
+            f"\"{self.settings.podcast_name}\" aloud in {language}, naturally and in a relaxed conversational tone. "
+            f"{host} is curious and warm, {expert} calm, knowledgeable and enthusiastic.\n\n{transcript}"
         )
         voices = {host: self.settings.gemini_voice_host, expert: self.settings.gemini_voice_expert}
         return {

@@ -16,7 +16,7 @@ Status: **all milestones implemented** (email and REST API dropped on request) �
 |---|---|
 | Claude auth | Subscription token (`claude setup-token` → `CLAUDE_CODE_OAUTH_TOKEN`), personal use |
 | Claude runtime | Claude Agent SDK for Python (bundles the Claude Code CLI) |
-| Language | German |
+| Language | German or English per episode; all prompts and skills for Claude in English |
 | Input | Free-text topic description (may mention papers, authors, arXiv IDs, URLs) |
 | Research | Always runs first; depth `quick` / `medium` (default) / `deep` per request. Parallel Haiku scouts return a ranked shortlist, Opus picks papers, our code downloads the full texts, and Opus reads all of them |
 | Length | Per request: `kurz` (~5 min), `mittel` (~12 min), `lang` (~25 min) |
@@ -131,8 +131,8 @@ are deterministic, testable and resumable.
   that you can inspect.
 
 **1b. Selection** (main model, default **Opus**)
-- The main agent sees the shortlist and picks the papers to read (`quick` about 3,
-  `medium` about 6, `deep` about 10). It may pick from anywhere in the list, not
+- The main agent sees the shortlist and picks the papers to read (`quick` 2,
+  `medium` 4, `deep` 6; the first 2–3 are read completely, the rest selectively). It may pick from anywhere in the list, not
   just the top.
 - Output: the selected IDs, each with a reason.
 
@@ -281,8 +281,8 @@ Prompt blocks and skills do different jobs:
 | Skill | Used in | Content |
 |---|---|---|
 | `paper-research` | research | Using the arXiv API, Semantic Scholar API and OpenAlex through WebFetch (endpoints and query syntax in `reference/`); finding the original paper, citations and follow-ups; judging source quality |
-| `german-podcast-dialogue` | script | Spoken German style: how to phrase questions, fillers used sparingly, analogies, how to handle du/Sie, bad and good examples |
-| `tts-friendly-text` | script | Rules and lexicon (`reference/aussprache.md`) for numbers, units, formulas, English terms and abbreviations as they should be spoken by Edge or Gemini |
+| `podcast-dialogue` | script | Spoken dialogue style (German or English): how to phrase questions, fillers used sparingly, analogies, how to handle du/Sie, bad and good examples |
+| `tts-friendly-text` | script | Rules and lexicon (`reference/pronunciation.md`) for numbers, units, formulas, English terms and abbreviations as they should be spoken by Edge or Gemini |
 | `fact-check` | script (review) | Checklist to verify each claim and number in the script against `research.md` / `sources.json` |
 | `handout-plots` | handout | matplotlib style guide (fonts, colors, sizes for A4), plot types per content (timeline, comparison, bar, schematic), labelling when data is approximate |
 | `digest-ranking` | *(later)* digest | How to score new papers against your interests |

@@ -1,14 +1,14 @@
-Recherchiere gründlich, bevor irgendetwas geschrieben wird.
+Research thoroughly before anything is written.
 
-- Finde zuerst die Kernquelle(n): Wenn im Thema ein Paper, eine Autorin oder eine arXiv-ID genannt wird, suche genau diese Arbeit und lies Abstract, Einleitung, Methoden, Ergebnisse und Fazit.
-- Wenn nur ein Thema beschrieben ist: Finde die wichtigsten und aktuellsten Arbeiten dazu und wähle einen klaren Fokus.
-- Sammle Kontext: Vorarbeiten, Folgearbeiten, Kritik, Replikationen, praktische Anwendungen.
-- Notiere konkrete Zahlen, Größenordnungen und Beispiele — mit Quelle.
-- Bevorzuge Primärquellen (Paper, Preprints, offizielle Projektseiten) vor Pressemitteilungen und Blogs.
+- Find the core source(s) first: if the topic names a paper, an author or an arXiv ID, find exactly that work.
+- If only a topic is described: find the most important and most recent work on it and choose a clear focus.
+- Gather context: prior work, follow-up work, critique, replications, practical applications.
+- Record concrete numbers, magnitudes and examples, each with its source.
+- Prefer primary sources (papers, preprints, official project pages) over press releases and blogs.
 {% if research_depth == "quick" %}
-Umfang: schnell — etwa 3 Suchen, nur die wichtigsten Quellen.
+Scope: quick. The core paper(s) and only the most essential context.
 {% elif research_depth == "medium" %}
-Umfang: mittel — etwa 5 bis 10 Suchen, Kernquelle(n) plus Kontext.
+Scope: normal. The core paper(s) plus the key context: prior work, critique or follow-ups.
 {% else %}
-Umfang: tief — 15 oder mehr Suchen; verfolge auch zitierte und zitierende Arbeiten und suche gezielt nach Kritik.
+Scope: deep. Also follow citing and cited work, look specifically for critique and replications, and cover recent developments.
 {% endif %}

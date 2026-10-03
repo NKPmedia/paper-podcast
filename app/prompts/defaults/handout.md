@@ -1,8 +1,8 @@
-Das Handout ist ein kompaktes PDF (2 bis 4 Seiten) zum Nachlesen:
+The handout is a compact PDF (2 to 4 pages) for reading after listening:
 
-- Titel und ein Absatz Zusammenfassung
-- Die wichtigsten Ideen als kurze Abschnitte
-- Die wichtigsten Formeln sauber gesetzt, jeweils mit einer Erklärung in Worten
-- 1 bis 3 Abbildungen mit matplotlib (siehe Skill `handout-plots`); Daten nur aus der Recherche, ansonsten als „schematisch“ kennzeichnen
-- Glossar mit 5 bis 10 Begriffen
-- Quellenliste mit Links
+- Title and a one-paragraph summary
+- The key ideas as short sections
+- The most important formulas, properly typeset, each with a plain-language explanation
+- 1 to 3 matplotlib figures (see skill `handout-plots`); data only from the research, otherwise marked as schematic
+- A glossary with 5 to 10 terms
+- A source list with links

@@ -34,16 +34,19 @@ NAME = "research"
 DESCRIPTION = "Claude recherchiert das Thema"
 
 SCOUT_TOOLS = ["WebSearch", "WebFetch", "Read"]
-READ_TOOLS = ["Read", "WebSearch", "WebFetch"]
-MAX_CANDIDATES = 40
+# Grep lets the reader pull a paper's outline (its Markdown headings) before reading.
+READ_TOOLS = ["Read", "Grep", "WebSearch", "WebFetch"]
+# Enough for the selection to choose from without bloating its prompt.
+MAX_CANDIDATES = 30
 
 ANGLES = {
-    "overview": "Breiter Überblick: die Kernarbeit(en) zum Thema, wichtige Übersichtsartikel und aktuelle Entwicklungen.",
-    "background": "Hintergrund und Vorarbeiten: Auf welchen Arbeiten baut das Thema auf? Klassiker, Grundlagen, Übersichtsartikel.",
-    "core": "Kernarbeiten zu Methode und Ergebnissen: die zentralen Paper mit den wichtigsten Resultaten und Zahlen.",
-    "critique": "Kritik und Einordnung: Replikationen, Grenzen, Gegenpositionen, Folgearbeiten und praktische Anwendungen.",
-    "citations": "Zitationsnetz: Finde die Kernarbeit und verfolge über Semantic Scholar, wer sie zitiert (einflussreiche Folgearbeiten) und worauf sie aufbaut.",
-    "recent": "Neueste Entwicklungen der letzten 12 bis 24 Monate: aktuelle Preprints und Konferenzbeiträge.",
+    "overview": "Broad overview: the core paper(s) on the topic, key survey articles and recent developments.",
+    "background": "Background and prior work: which work does the topic build on? Classics, foundations, surveys.",
+    "core": "Core papers on method and results: the central papers with the most important findings and numbers.",
+    "critique": "Critique and context: replications, limitations, opposing views, follow-up work and practical applications.",
+    "citations": "Citation network: find the core paper and use Semantic Scholar to trace who cites it (influential "
+                 "follow-up work) and what it builds on.",
+    "recent": "Latest developments from the past 12 to 24 months: recent preprints and conference papers.",
 }
 
 
@@ -52,16 +55,26 @@ class DepthProfile:
     angles: tuple[str, ...]
     candidates_per_scout: int
     searches_per_scout: int  # WebSearch + API queries; keeps cheap scouts cheap
-    papers: int
-    scout_turns: int
-    main_turns: int
+    papers: int  # full texts downloaded for the main model
+    full_reads: int  # of those, the top-ranked ones are read completely; the rest selectively
+    scout_turns: int  # searches + skill/reference reads + a few metadata look-ups + the answer
+    main_turns: int  # ~3 Read calls per paper + follow-up searches + the answer, with headroom
 
 
+# Sized so that the selected full texts (each capped by ``paper_max_chars``, ~35k
+# tokens) still fit into one context window together with the prompt and notes.
 PROFILES = {
-    ResearchDepth.quick: DepthProfile(("overview",), 10, 8, 3, 14, 40),
-    ResearchDepth.medium: DepthProfile(("background", "core", "critique"), 12, 6, 6, 12, 80),
-    ResearchDepth.deep: DepthProfile(("background", "core", "critique", "citations", "recent"), 15, 8, 10, 16, 150),
+    ResearchDepth.quick: DepthProfile(("overview",), 8, 5, 2, 2, 12, 30),
+    ResearchDepth.medium: DepthProfile(("background", "core", "critique"), 8, 5, 4, 2, 12, 60),
+    ResearchDepth.deep: DepthProfile(("background", "core", "critique", "citations", "recent"), 10, 7, 6, 3, 14, 90),
 }
+
+
+def depth_hint(depth: ResearchDepth) -> str:
+    """Short German description for the web UI and Telegram, e.g. '3 Scouts, 4 Paper'."""
+    p = PROFILES[depth]
+    scouts = f"{len(p.angles)} Scout" + ("s" if len(p.angles) > 1 else "")
+    return f"{scouts}, {p.papers} Paper ({p.full_reads} komplett gelesen)"
 
 
 def is_done(ctx) -> bool:
@@ -85,10 +98,7 @@ def _read_json(path):
 
 
 def _log_claude(ctx, step: str, model: str, result, **extra) -> None:
-    ctx.log.write(
-        "claude", stage=NAME, step=step, model=model, cost_usd=result.cost_usd,
-        turns=result.num_turns, skills_used=result.skills_used, **extra,
-    )
+    ctx.log_claude(NAME, model, result, step=step, **extra)
 
 
 # --- 1a. Scouts -------------------------------------------------------------------
@@ -233,6 +243,7 @@ async def select_papers(ctx, candidates: list[RankedCandidate], profile: DepthPr
         extra_instructions=ctx.request.options.extra_instructions,
         candidates=candidates,
         count=profile.papers,
+        full_reads=profile.full_reads,
     )
     model = ctx.settings.research_main_model
     result = await ctx.claude.run(
@@ -257,7 +268,7 @@ async def select_papers(ctx, candidates: list[RankedCandidate], profile: DepthPr
     selection.selected = valid[: profile.papers]
     if not selection.selected:  # model returned only unknown IDs: fall back to the ranking
         selection.selected = [
-            SelectedPaper(id=c.id, reason="Automatisch nach Relevanz gewählt") for c in candidates[: profile.papers]
+            SelectedPaper(id=c.id, reason="Picked automatically by relevance score") for c in candidates[: profile.papers]
         ]
     _log_claude(ctx, "select", model, result, selected=len(selection.selected), dropped=dropped)
     return selection
@@ -277,8 +288,10 @@ async def read_and_write_notes(ctx, candidates, selection, papers, profile, skil
         topic=ctx.request.topic,
         extra_instructions=ctx.request.options.extra_instructions,
         focus=selection.focus,
-        selected=[(p, by_id[p.id], next(x for x in papers if x["id"] == p.id)) for p in selection.selected],
+        selected=[(p, by_id[p.id], next(x for x in papers if x["id"] == p.id), i < profile.full_reads)
+                  for i, p in enumerate(selection.selected)],
         others=[c for c in candidates if c.id not in selected_ids],
+        language_name=ctx.request.options.language.english_name,
     )
     model = ctx.settings.research_main_model
     result = await ctx.claude.run(
@@ -343,7 +356,7 @@ async def run(ctx) -> None:
     await ctx.set_title(research.title_suggestion)
     ctx.path("research.md").write_text(
         f"# {research.title_suggestion}\n\n{research.notes.strip()}\n\n"
-        f"## Material für den Podcast\n\n{research.podcast_material.strip()}\n",
+        f"## Podcast material\n\n{research.podcast_material.strip()}\n",
         encoding="utf-8",
     )
     _write_json(ctx.path("sources.json"), [s.model_dump() for s in research.sources])

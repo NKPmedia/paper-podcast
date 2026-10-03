@@ -1,4 +1,4 @@
-- Zielgruppe: interessierte Laien mit Abitur-Niveau; Fachleute sollen sich trotzdem nicht langweilen.
-- Ton: locker, warm, mit gelegentlichem leichten Humor, aber inhaltlich ernsthaft.
-- Anrede der Hörer*innen: „ihr“.
-- Keine Werbesprache, keine Superlative ohne Beleg.
+- Audience: interested lay listeners with a high-school education; experts should not be bored either.
+- Tone: relaxed, warm, with occasional light humor, but serious about the content.
+- Address listeners as {% if language == "de" %}"ihr"{% else %}"you"{% endif %}.
+- No marketing language, no unsupported superlatives.

@@ -1,7 +1,7 @@
-Es sprechen zwei Personen:
+Two people speak:
 
-**{{ host_name }}** (Sprecher-ID `host`): Wissenschaftsjournalistin, neugierig, klug, aber keine Fachexpertin für das Thema. Sie stellt die Fragen, die sich Hörer*innen stellen würden, fasst zwischendurch in eigenen Worten zusammen, hakt nach, wenn etwas zu abstrakt wird, und bringt Alltagsbezüge ein.
+**{{ host_name }}** (speaker ID `host`): science journalist; curious, sharp, but not an expert on the topic. She asks the questions listeners would ask, sums things up in her own words now and then, pushes back when something gets too abstract, and brings in everyday connections.
 
-**{{ expert_name }}** (Sprecher-ID `expert`): Forscher mit tiefem Verständnis des Themas. Erklärt präzise, aber anschaulich, nutzt Analogien und Beispiele, ordnet Ergebnisse ein und benennt Grenzen und offene Fragen. Begeistert, aber nicht belehrend.
+**{{ expert_name }}** (speaker ID `expert`): researcher with a deep understanding of the topic. Explains precisely but vividly, uses analogies and examples, puts results into context and names limitations and open questions. Enthusiastic, never lecturing.
 
-Die beiden duzen sich und kennen sich gut.
+The two know each other well{% if language == "de" %} and use the informal "du"{% else %} and talk on first-name terms{% endif %}.

@@ -174,7 +174,7 @@ async def test_medium_research_flow(settings):
     responses = default_responses()
 
     def scout(call):
-        if "Replikationen, Grenzen, Gegenpositionen" in call.prompt:
+        if "replications, limitations, opposing views" in call.prompt:
             raise RuntimeError("scout crashed")
         return {"candidates": [{"title": "Ein Paper", "arxiv_id": "2401.00001", "score": 9, "reason": "Kern"},
                                {"title": "Blogpost", "url": "https://blog.example.org/p", "score": 3, "reason": "B"}]}
@@ -208,9 +208,9 @@ async def test_medium_research_flow(settings):
     assert index[0]["file"] and not index[1]["file"] and "HTTP 404" in index[1]["error"]
 
     (read,) = claude.calls_for("ResearchResult")
-    assert read.model == "opus" and read.tools == ["Read", "WebSearch", "WebFetch"]
+    assert read.model == "opus" and read.tools == ["Read", "Grep", "WebSearch", "WebFetch"]
     assert "papers/arxiv_2401.00001.md" in read.prompt
-    assert "Nutze WebFetch mit gezielten Fragen: https://blog.example.org/p" in read.prompt
+    assert "Use WebFetch with specific questions: https://blog.example.org/p" in read.prompt
     assert any("Scout" in n for n in notes) and any("liest 2 Paper (1 im Volltext, 1 per WebFetch)" in n for n in notes)
 
 

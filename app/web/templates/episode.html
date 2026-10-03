@@ -7,7 +7,7 @@
   {% if job.title %}<p class="muted">Thema: {{ job.topic }}</p>{% endif %}
   <p class="meta">
     <span class="badge {{ job.status }}" data-field="status">{{ status_labels[job.status] }}</span>
-    {{ lengths.get(options.get("length"), "") }} · Recherche {{ depths.get(options.get("research_depth"), "") }}{% if options.get("handout") %} · mit Handout{% endif %}
+    {{ lengths.get(options.get("length"), "") }} · Recherche {{ depths.get(options.get("research_depth"), "") }}{% if options.get("handout") %} · mit Handout{% endif %} · {{ languages.get(options.get("language", "de"), "") }}
     · {{ job.created_at | time }}
   </p>
 
@@ -54,6 +54,40 @@
     {% endfor %}
   </ol>
 </section>
+{% endif %}
+
+{% if tokens.calls or claude_calls %}
+<section class="card usage">
+  <h2>Claude-Nutzung{% if job.active %} bisher{% endif %}</h2>
+  <p class="usage-total"><strong>{{ tokens.total | tokens }}</strong> Tokens{% if job.cost_usd %} · ≈ {{ job.cost_usd | money }} API-Gegenwert{% endif %} · {{ claude_calls | length }} Aufrufe</p>
+  <p class="hint">Eingabe {{ tokens.input | tokens }} · Ausgabe {{ tokens.output | tokens }} · aus dem Cache gelesen {{ tokens.cache_read | tokens }} · in den Cache geschrieben {{ tokens.cache_write | tokens }}. Mit Abo wird dein Kontingent belastet; Cache-Lesezugriffe zählen dabei deutlich weniger.</p>
+  <details>
+    <summary>Einzelne Aufrufe</summary>
+    <table class="calls">
+      <thead><tr><th>Schritt</th><th>Modell</th><th>Runden</th><th>Eingabe</th><th>Ausgabe</th><th>Cache</th><th>Gesamt</th><th>Kosten</th></tr></thead>
+      <tbody>
+      {% for c in claude_calls %}
+      <tr><td>{{ stage_labels.get(c.stage, c.stage) }}{% if c.step %} · {{ c.step.replace("scout:", "Scout ") }}{% endif %}{% if c.attempt and c.attempt > 1 %} · Versuch {{ c.attempt }}{% endif %}</td>
+        <td>{{ c.model or "" }}</td><td>{{ c.turns }}</td><td>{{ c.token_row.input | tokens }}</td><td>{{ c.token_row.output | tokens }}</td>
+        <td>{{ (c.token_row.cache_read + c.token_row.cache_write) | tokens }}</td><td>{{ c.token_row.total | tokens }}</td><td>{{ c.cost_usd | money }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </details>
+</section>
+{% endif %}
+
+{% if timeline %}
+<details class="card" {% if job.status == "failed" %}open{% endif %}>
+  <summary><h2>Ablauf</h2></summary>
+  <p class="hint">Protokoll, wie diese Episode entstanden ist.{% if job.active %} Neu laden zeigt den aktuellen Stand.{% endif %}</p>
+  <ol class="timeline">
+    {% for row in timeline %}
+    <li class="{{ row.kind }}"><span class="ts">{{ row.time }}</span> <span class="text">{{ row.text }}</span>
+      {% if row.detail %}<details><summary>Details</summary><pre class="error-box">{{ row.detail }}</pre></details>{% endif %}</li>
+    {% endfor %}
+  </ol>
+</details>
 {% endif %}
 
 {% if script %}
@@ -116,25 +150,12 @@
 {% if not job.active %}
 <details class="card">
   <summary><h2>Verwalten</h2></summary>
-  {% if job.cost_usd %}<p class="hint">Claude-Nutzung dieser Episode: ≈ {{ job.cost_usd | money }} (API-Gegenwert; mit Abo wird dein Kontingent belastet).</p>{% endif %}
   <form method="post" action="/episodes/{{ job.id }}/retry" class="inline-select" data-confirm="Die gewählten Schritte und alle danach werden neu erzeugt, die bisherige Fassung wird ersetzt. Fortfahren?">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label class="sr-only" for="from_stage">Neu erzeugen ab</label>
     <select name="from_stage" id="from_stage">{% for s in stage_names %}<option value="{{ s }}" {% if s == "script" %}selected{% endif %}>ab {{ stage_labels[s] }}{% if s == "research" %} (komplett neu, dauert am längsten){% endif %}</option>{% endfor %}</select>
     <button>Neu erzeugen</button>
   </form>
-  {% if claude_calls %}
-  <h3>Claude-Aufrufe</h3>
-  <table>
-    <thead><tr><th>Schritt</th><th>Modell</th><th>Runden</th><th>Kosten</th></tr></thead>
-    <tbody>
-    {% for c in claude_calls %}
-    <tr><td>{{ stage_labels.get(c.stage, c.stage) }}{% if c.step %} · {{ c.step.replace("scout:", "Scout ") }}{% endif %}{% if c.attempt and c.attempt > 1 %} · Versuch {{ c.attempt }}{% endif %}</td>
-      <td>{{ c.model or "" }}</td><td>{{ c.turns }}</td><td>{{ c.cost_usd | money }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
   <form method="post" action="/episodes/{{ job.id }}/delete" data-confirm="Episode samt allen Dateien endgültig löschen?"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Episode löschen</button></form>
 </details>
 {% endif %}

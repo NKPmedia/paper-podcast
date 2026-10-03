@@ -23,6 +23,13 @@ STYLE_PROSODY = {
     "nachdenklich": ("-6%", "-1Hz"),
     "ernst": ("-4%", "-2Hz"),
     "ruhig": ("-5%", "+0Hz"),
+    "excited": ("+8%", "+2Hz"),
+    "enthusiastic": ("+8%", "+2Hz"),
+    "surprised": ("+5%", "+3Hz"),
+    "curious": ("+3%", "+1Hz"),
+    "thoughtful": ("-6%", "-1Hz"),
+    "serious": ("-4%", "-2Hz"),
+    "calm": ("-5%", "+0Hz"),
 }
 
 RETRIES = 4
@@ -45,9 +52,12 @@ def prosody(style: str) -> tuple[str, str]:
 class EdgeTTS:
     name = "edge"
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, language: str = "de"):
         self.settings = settings
-        self.voices = {"host": settings.edge_voice_host, "expert": settings.edge_voice_expert}
+        if language == "en":
+            self.voices = {"host": settings.edge_voice_host_en, "expert": settings.edge_voice_expert_en}
+        else:
+            self.voices = {"host": settings.edge_voice_host, "expert": settings.edge_voice_expert}
 
     async def _synthesize_line(self, text: str, voice: str, style: str, path: Path) -> None:
         import edge_tts

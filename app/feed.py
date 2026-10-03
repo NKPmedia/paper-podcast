@@ -102,7 +102,7 @@ def build_feed(settings: Settings, jobs: list[Job], base_url: str, token: str) -
         f"<link>{escape(base)}/</link>"
         f"<atom:link href=\"{escape(feed_base)}.xml\" rel=\"self\" type=\"application/rss+xml\"/>"
         "<description>Private Podcast-Episoden zu Forschungsthemen, erstellt mit Claude.</description>"
-        "<language>de</language>"
+        f"<language>{'en' if settings.default_language == 'en' else 'de'}</language>"
         f"<itunes:author>{escape(settings.podcast_name)}</itunes:author>"
         "<itunes:category text=\"Science\"/>"
         "<itunes:explicit>false</itunes:explicit>"

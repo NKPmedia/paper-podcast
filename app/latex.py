@@ -41,7 +41,7 @@ PLOT_MACRO = re.compile(r"\\plot\{([a-z0-9-]+)\}")
 PREAMBLE = r"""\documentclass[11pt,a4paper]{article}
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
-\usepackage[ngerman]{babel}
+\usepackage[<<BABEL>>]{babel}
 \usepackage{lmodern}
 \usepackage{microtype}
 \usepackage[a4paper,top=2.3cm,bottom=2.5cm,left=2.2cm,right=2.2cm,headheight=14pt]{geometry}
@@ -108,13 +108,13 @@ def escape_text(text: str) -> str:
 
 def check_body(body: str) -> None:
     if "^^" in body:
-        raise LatexRejected("„^^“-Zeichenfolgen sind nicht erlaubt")
+        raise LatexRejected("\"^^\" sequences are not allowed")
     match = FORBIDDEN.search(body)
     if match:
-        raise LatexRejected(f"Befehl nicht erlaubt: {match.group(0)}")
+        raise LatexRejected(f"Command not allowed: {match.group(0)}")
 
 
-def expand_plots(body: str, plots: dict[str, str], available: set[str]) -> str:
+def expand_plots(body: str, plots: dict[str, str], available: set[str], language: str = "de") -> str:
     """Replace ``\\plot{name}`` with a figure; unknown or failed plots are dropped.
 
     ``plots`` maps names to LaTeX captions. Plots that exist but are not referenced
@@ -133,16 +133,18 @@ def expand_plots(body: str, plots: dict[str, str], available: set[str]) -> str:
     body = PLOT_MACRO.sub(lambda m: figure(m.group(1)) if m.group(1) in available and m.group(1) in plots else "", body)
     leftovers = [n for n in plots if n in available and n not in used]
     if leftovers:
-        body += "\n\n\\section{Abbildungen}\n" + "\n\n".join(figure(n) for n in leftovers)
+        heading = "Figures" if language == "en" else "Abbildungen"
+        body += f"\n\n\\section{{{heading}}}\n" + "\n\n".join(figure(n) for n in leftovers)
     return body
 
 
-def build_document(podcast: str, title: str, date: str, body: str) -> str:
+def build_document(podcast: str, title: str, date: str, body: str, language: str = "de") -> str:
     pdf_safe = lambda s: re.sub(r"[{}\\%#&$^_~]", "", s)  # noqa: E731
     head = (
         PREAMBLE.replace("<<PODCAST_PDF>>", pdf_safe(podcast)).replace("<<TITLE_PDF>>", pdf_safe(title))
         .replace("<<PODCAST>>", escape_text(podcast)).replace("<<TITLE>>", escape_text(title))
         .replace("<<DATE>>", escape_text(date))
+        .replace("<<BABEL>>", "ngerman,english" if language == "en" else "english,ngerman")
     )
     return head + body.strip() + POSTAMBLE
 
@@ -164,7 +166,7 @@ def error_excerpt(log: str, source: str) -> str:
                 number = int(m.group(1))
                 src = source.splitlines()
                 if 0 < number <= len(src):
-                    excerpt += f"\n\nZeile {number} im Dokument: {src[number - 1][:300]}"
+                    excerpt += f"\n\nLine {number} of the document: {src[number - 1][:300]}"
             return excerpt[:2500]
     return "\n".join(lines[-15:])[:2500] or "pdflatex ist ohne Log fehlgeschlagen"
 

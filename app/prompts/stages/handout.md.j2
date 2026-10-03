@@ -1,34 +1,34 @@
-Du erstellst das Handout (PDF) zu einer Podcast-Episode. Hörer*innen lesen es nach dem Hören, um Details, Formeln und Abbildungen nachzuschlagen, die im Gespräch nur in Worten erklärt wurden.
+You are creating the handout (PDF) for a podcast episode. Listeners read it after listening, to look up details, formulas and figures that the conversation only explained in words.
 
-# Anforderungen an das Handout
+# Handout requirements
 
 {{ blocks.handout }}
 
 # Episode
 
-Titel: {{ script.title }}
-Zusammenfassung: {{ script.summary }}
-Kapitel: {% for c in script.chapters %}{{ loop.index }}. {{ c.title }}{% if not loop.last %} · {% endif %}{% endfor %}
+Title: {{ script.title }}
+Summary: {{ script.summary }}
+Chapters: {% for c in script.chapters %}{{ loop.index }}. {{ c.title }}{% if not loop.last %} · {% endif %}{% endfor %}
 {% if script.handout_items %}
-Im Gespräch wird ausdrücklich auf das Handout verwiesen. Diese Punkte **müssen** enthalten sein:
+The conversation explicitly refers to the handout. These items **must** be included:
 {% for item in script.handout_items %}- {{ item }}
 {% endfor %}{% endif %}
-# Recherche-Notizen
+# Research notes
 
 {{ notes }}
 
-# Quellen
+# Sources
 
 {% for s in sources %}- {{ s.title }}{% if s.authors %} — {{ s.authors }}{% endif %}{% if s.year %} ({{ s.year }}){% endif %}{% if s.url %}: {{ s.url }}{% endif %}
 {% endfor %}{% if papers %}
-# Volltexte zum Nachschlagen
+# Full texts for reference
 
-{% for p in papers %}- `{{ p.file }}`: {{ p.title }} ({{ p.lines }} Zeilen)
-{% endfor %}Schlage Zahlen für Abbildungen und Formeln gezielt in den Volltexten nach (Read mit `offset`/`limit`).
+{% for p in papers %}- `{{ p.file }}`: {{ p.title }} ({{ p.lines }} lines)
+{% endfor %}Look up numbers for figures and formulas in the full texts (Read with `offset`/`limit`).
 {% endif %}
-# Dein Auftrag
+# Your task
 
-Das Handout wird mit LaTeX (pdflatex) gesetzt. Präambel, Titel und Layout liefert der Server; du schreibst nur den **Dokumentkörper**. Halte dich an den Skill `latex-handout`.
+The handout is typeset with LaTeX (pdflatex). The server provides the preamble, title and layout; you write only the **document body**. Follow the `latex-handout` skill. **All handout text is in {{ language_name }}.**
 
-- `latex_body`: Das Handout auf Deutsch als LaTeX: `\section`, `\subsection`, Absätze, `itemize`/`enumerate`, Tabellen mit `booktabs`. Formeln setzt du richtig als LaTeX (`equation`, `align`, `$…$`) und erklärst jede direkt darunter in Worten. Abbildungen bindest du jeweils als eigene Zeile mit `\plot{name}` ein. Der Titel steht schon im Kopf, beginne also direkt mit dem Inhalt. Zum Schluss kommt ein Abschnitt `\section{Quellen}` mit den Links als `\url{…}`.
-- `plots`: 1 bis 3 Abbildungen (Skill `handout-plots`). Der Code zeichnet genau eine Abbildung mit `plt`/`np`. Erlaubte Importe sind nur `matplotlib`, `numpy` und `math`. Kein `savefig`, kein `show`, kein Dateizugriff. Die `caption` ist LaTeX-Text, also Sonderzeichen maskieren. Verwende nur Zahlen aus der Recherche; andernfalls kennzeichne die Abbildung als „schematisch“.
+- `latex_body`: the handout as LaTeX: `\section`, `\subsection`, paragraphs, `itemize`/`enumerate`, tables with `booktabs`. Typeset formulas properly in LaTeX (`equation`, `align`, `$…$`) and explain each one in words right below it. Include each figure on its own line with `\plot{name}`. The title is already in the header, so start directly with the content. End with a sources section (`\section{ {{- "Quellen" if language == "de" else "Sources" -}} }`) listing the links as `\url{…}`.
+- `plots`: 1 to 3 figures (skill `handout-plots`). The code draws exactly one figure with `plt`/`np`. Allowed imports are only `matplotlib`, `numpy` and `math`. No `savefig`, no `show`, no file access. The `caption` is LaTeX text in {{ language_name }}, so escape special characters. Use only numbers from the research; otherwise mark the figure as schematic.

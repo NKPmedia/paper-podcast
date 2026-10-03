@@ -33,34 +33,34 @@ def is_done(ctx) -> bool:
 def validate(script: Script, target_words: int, handout: bool = False) -> list[str]:
     problems = []
     if len(script.chapters) < 2:
-        problems.append("Das Skript braucht mindestens zwei Kapitel.")
+        problems.append("The script needs at least two chapters.")
     speakers = {line.speaker for _, _, line in script.iter_lines()}
     if speakers != {"host", "expert"}:
-        problems.append("Beide Sprecher (host und expert) müssen vorkommen.")
+        problems.append("Both speakers (host and expert) must appear.")
     for ci, li, line in script.iter_lines():
         if not line.text.strip():
-            problems.append(f"Kapitel {ci + 1}, Zeile {li + 1} ist leer.")
+            problems.append(f"Chapter {ci + 1}, line {li + 1} is empty.")
         elif FORMULA_PATTERN.search(line.text):
             problems.append(
-                f"Kapitel {ci + 1}, Zeile {li + 1} enthält eine geschriebene Formel oder Formelzeichen. "
-                "Formeln werden nicht vorgelesen; erkläre die Aussage in Worten."
+                f"Chapter {ci + 1}, line {li + 1} contains a written formula or math symbols. "
+                "Formulas are never read out; explain the statement in words."
             )
         elif not handout and HANDOUT_PATTERN.search(line.text):
             problems.append(
-                f"Kapitel {ci + 1}, Zeile {li + 1} verweist auf ein Handout, es gibt aber keins."
+                f"Chapter {ci + 1}, line {li + 1} refers to a handout, but there is none."
             )
         elif len(line.text) > MAX_LINE_CHARS:
             problems.append(
-                f"Kapitel {ci + 1}, Zeile {li + 1} ist zu lang ({len(line.text)} Zeichen); "
-                "teile sie in mehrere Wortwechsel auf."
+                f"Chapter {ci + 1}, line {li + 1} is too long ({len(line.text)} characters); "
+                "split it into several exchanges."
             )
     if not handout and script.handout_items:
-        problems.append("`handout_items` muss leer sein, weil es kein Handout gibt.")
+        problems.append("`handout_items` must be empty because there is no handout.")
     words = script.word_count
     if words < target_words * MIN_LENGTH_RATIO:
-        problems.append(f"Das Skript ist zu kurz: {words} Wörter, Ziel sind etwa {target_words}.")
+        problems.append(f"The script is too short: {words} words, the target is about {target_words}.")
     elif words > target_words * MAX_LENGTH_RATIO:
-        problems.append(f"Das Skript ist zu lang: {words} Wörter, Ziel sind etwa {target_words}.")
+        problems.append(f"The script is too long: {words} words, the target is about {target_words}.")
     return problems
 
 
@@ -82,7 +82,7 @@ async def run(ctx) -> None:
         notes=notes,
         sources=sources,
         papers=papers,
-        **ctx.prompt_context,
+        **{**ctx.prompt_context, "language_name": opts.language.english_name},
     )
     session_id = None
     problems: list[str] = []
@@ -105,17 +105,10 @@ async def run(ctx) -> None:
             script = Script.model_validate(result.structured)
             problems = validate(script, target_words, ctx.request.options.handout)
         except ValidationError as exc:
-            script, problems = None, [f"Das JSON entspricht nicht dem Schema: {exc}"]
-        ctx.log.write(
-            "claude",
-            stage=NAME,
-            model=ctx.settings.script_model,
-            attempt=attempt,
-            cost_usd=result.cost_usd,
-            turns=result.num_turns,
-            skills_used=result.skills_used,
-            words=script.word_count if script else None,
-            problems=problems,
+            script, problems = None, [f"The JSON does not match the schema: {exc}"]
+        ctx.log_claude(
+            NAME, ctx.settings.script_model, result,
+            attempt=attempt, words=script.word_count if script else None, problems=problems,
         )
         if not problems:
             ctx.path("script.json").write_text(
@@ -124,9 +117,9 @@ async def run(ctx) -> None:
             await ctx.set_title(script.title)
             return
         prompt = (
-            "Das Skript erfüllt die Anforderungen noch nicht:\n- "
+            "The script does not meet the requirements yet:\n- "
             + "\n- ".join(problems)
-            + "\n\nBitte korrigiere das und gib das vollständige, überarbeitete Skript zurück."
+            + "\n\nPlease fix this and return the complete, revised script."
         )
     raise PodcastError(
         f"Claude hat nach {MAX_ATTEMPTS} Versuchen kein gültiges Skript geliefert. Mit „Fortsetzen“ erneut "

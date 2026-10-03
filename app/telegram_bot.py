@@ -22,7 +22,8 @@ from app.config import Settings
 from app.db import Job
 from app.errors import split_error
 from app.jobs import JobError, JobService, Worker
-from app.models import EpisodeOptions, EpisodeRequest, Length, ResearchDepth
+from app.models import EpisodeOptions, EpisodeRequest, Language, Length, ResearchDepth
+from app.pipeline.research import depth_hint
 from app.pipeline import STAGE_ARTIFACTS, stages_for
 
 log = logging.getLogger(__name__)
@@ -36,7 +37,8 @@ STAGE_LABELS = {"research": "Recherche", "script": "Skript", "handout": "Handout
 LENGTH_LABELS = {"kurz": "Kurz (~5 min)", "mittel": "Mittel (~12 min)", "lang": "Lang (~25 min)"}
 LENGTH_BUTTONS = {"kurz": "Kurz · 5 min", "mittel": "Mittel · 12 min", "lang": "Lang · 25 min"}
 DEPTH_LABELS = {"quick": "Schnell", "medium": "Normal", "deep": "Gründlich"}
-DEPTH_HINTS = {"quick": "ca. 3 Paper", "medium": "ca. 6 Paper", "deep": "ca. 10 Paper, dauert länger"}
+DEPTH_HINTS = {d.value: depth_hint(d) + (", dauert länger" if d is ResearchDepth.deep else "") for d in ResearchDepth}
+LANGUAGE_LABELS = {"de": "🇩🇪 Deutsch", "en": "🇬🇧 English"}
 STATUS_ICONS = {"queued": "⏳", "running": "⚙️", "done": "✅", "failed": "❌", "cancelled": "🚫"}
 STATUS_LABELS = {"queued": "Wartet", "running": "Läuft", "done": "Fertig", "failed": "Fehler", "cancelled": "Abgebrochen"}
 
@@ -86,6 +88,7 @@ class Draft:
     length: str = Length.mittel.value
     depth: str = ResearchDepth.medium.value
     handout: bool = False
+    language: str = Language.de.value
 
 
 def esc(text: str) -> str:
@@ -202,12 +205,14 @@ class TelegramBot:
             f"<b>Neue Episode</b>\n{esc(draft.topic)}\n\n"
             f"Länge: {LENGTH_LABELS[draft.length]}\n"
             f"Recherche: {DEPTH_LABELS[draft.depth]} ({DEPTH_HINTS[draft.depth]})\n"
-            f"Handout: {'ja (PDF)' if draft.handout else 'nein'}"
+            f"Handout: {'ja (PDF)' if draft.handout else 'nein'}\n"
+            f"Sprache: {LANGUAGE_LABELS[draft.language]}"
         )
         keyboard = [
             [(mark(LENGTH_BUTTONS[v], draft.length == v), f"d:len:{v}") for v in LENGTH_LABELS],
             [(mark("🔎 " + DEPTH_LABELS[v], draft.depth == v), f"d:dep:{v}") for v in DEPTH_LABELS],
-            [(mark("📄 Handout (PDF)", draft.handout), "d:ho")],
+            [(mark("📄 Handout (PDF)", draft.handout), "d:ho")]
+            + [(mark(LANGUAGE_LABELS[v], draft.language == v), f"d:lang:{v}") for v in LANGUAGE_LABELS],
             [("▶ Starten", "d:go"), ("✖ Verwerfen", "d:x")],
         ]
         return text, keyboard
@@ -220,7 +225,8 @@ class TelegramBot:
         if len(topic) > 2000:
             await self.messenger.send_text(chat_id, "Das Thema ist zu lang (max. 2000 Zeichen).")
             return
-        draft = Draft(topic=topic)
+        language = self.settings.default_language if self.settings.default_language in LANGUAGE_LABELS else "de"
+        draft = Draft(topic=topic, language=language)
         text, keyboard = self._draft_view(draft)
         message_id = await self.messenger.send_text(chat_id, text, keyboard)
         self.drafts[(chat_id, message_id)] = draft
@@ -237,6 +243,8 @@ class TelegramBot:
             draft.depth = value
         elif field == "ho":
             draft.handout = not draft.handout
+        elif field == "lang" and value in LANGUAGE_LABELS:
+            draft.language = value
         elif field == "x":
             del self.drafts[(chat_id, message_id)]
             await self.messenger.edit_text(chat_id, message_id, f"Verworfen: {esc(draft.topic)}")
@@ -247,7 +255,7 @@ class TelegramBot:
             request = EpisodeRequest(
                 topic=draft.topic,
                 options=EpisodeOptions(length=Length(draft.length), research_depth=ResearchDepth(draft.depth),
-                                       handout=draft.handout),
+                                       handout=draft.handout, language=Language(draft.language)),
             )
             job = self.service.submit(request, origin="telegram")
             # Record the status message before the first await, so the worker's
