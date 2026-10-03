@@ -5,7 +5,7 @@
     python -m app.cli enqueue "Thema" [...]  # hand a job to the running server's queue
     python -m app.cli prompts                # list prompt blocks
     python -m app.cli skills                 # list skills
-    python -m app.cli hash-password          # create WEB_PASSWORD_HASH
+    python -m app.cli set-password           # set or reset the web UI password
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 from app.auth import hash_password
-from app.config import get_settings
+from app.config import get_settings, save_settings
 from app.db import JobStore
 from app.jobs import JobService
 from app.models import EpisodeOptions, EpisodeRequest, Length, ResearchDepth
@@ -73,26 +73,27 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("prompts", help="List prompt blocks")
     sub.add_parser("skills", help="List available skills")
-    sub.add_parser("hash-password", help="Create a password hash for WEB_PASSWORD_HASH")
+    sub.add_parser("set-password", help="Set or reset the web UI password")
 
     args = parser.parse_args(argv)
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    if args.command == "hash-password":
-        password = getpass.getpass("Passwort: ")
+    settings = get_settings()
+
+    if args.command == "set-password":
+        password = getpass.getpass("Neues Passwort: ")
         if len(password) < 10:
             print("Bitte mindestens 10 Zeichen verwenden.", file=sys.stderr)
             return 1
         if getpass.getpass("Wiederholen: ") != password:
             print("Die Passwörter stimmen nicht überein.", file=sys.stderr)
             return 1
-        # Single quotes: docker compose and python-dotenv then read the $ signs literally.
-        print(f"WEB_PASSWORD_HASH='{hash_password(password)}'")
+        save_settings(settings, {"web_password_hash": hash_password(password)})
+        print("Passwort gespeichert.")
         return 0
 
-    settings = get_settings()
     prompts = PromptStore(settings.prompts_dir)
 
     if args.command == "prompts":

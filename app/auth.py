@@ -7,7 +7,6 @@ import hashlib
 import hmac
 import secrets
 import time
-from pathlib import Path
 
 SCRYPT_N, SCRYPT_R, SCRYPT_P = 2**15, 8, 1
 
@@ -32,18 +31,6 @@ def verify_password(password: str, stored: str) -> bool:
     except (ValueError, TypeError):
         return False
     return hmac.compare_digest(actual, expected)
-
-
-def load_or_create_secret(configured: str, path: Path) -> str:
-    if configured:
-        return configured
-    if path.exists():
-        return path.read_text().strip()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    secret = secrets.token_urlsafe(48)
-    path.write_text(secret)
-    path.chmod(0o600)
-    return secret
 
 
 class LoginThrottle:

@@ -21,10 +21,8 @@ services:
     volumes:
       # Episodes, database, settings, prompt and skill overrides, uploads, Claude session data.
       - paper-podcast-data:/data
-    # Optional: fixed settings instead of the setup dialog (they appear as locked there).
-    # environment:
-    #   PUBLIC_BASE_URL: https://podcast.example.org
-    #   GEMINI_TTS_MODEL: gemini-2.5-flash-preview-tts
+    # All configuration lives in the app's SQLite database inside the volume and is
+    # edited in the web UI (setup dialog on first start, then "Einstellungen").
     ports:
       # Only reachable from the host; put your reverse proxy (HTTPS) in front.
       - "127.0.0.1:8000:8000"
@@ -49,7 +47,7 @@ services:
   #     - caddy-data:/data
 
   # --- Optional: self-hosted Telegram Bot API (audio files > 50 MB) --------------
-  # Set TELEGRAM_API_BASE_URL=http://telegram-bot-api:8081 in .env when you use it.
+  # Then enter http://telegram-bot-api:8081 under Einstellungen → Telegram → Eigener Bot-API-Server.
   # Needs API ID and hash from https://my.telegram.org.
   #
   # telegram-bot-api:

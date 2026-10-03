@@ -1,32 +1,58 @@
 {% extends "base.html" %}
+{% from "_field.html" import field %}
 {% block title %}Einstellungen · {{ settings.podcast_name }}{% endblock %}
 {% block content %}
-<form method="post" action="/settings" class="card setup">
-  <h1>Einstellungen</h1>
-  {% if errors %}<div class="flash error" role="alert">Bitte prüfe die markierten Felder.</div>{% endif %}
-  <input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="settings-layout">
+  <nav class="settings-nav card" aria-label="Bereiche">
+    <h1>Einstellungen</h1>
+    <ul>
+      {% for s in sections %}<li><a href="#{{ s.id }}">{{ s.title }}</a></li>{% endfor %}
+      <li><a href="#password">Passwort</a></li>
+    </ul>
+    <p class="hint">Alles wird in der lokalen Datenbank gespeichert und gilt sofort – laufende Episoden nutzen ihre Einstellungen vom Start.</p>
+  </nav>
 
-  {% include "_settings_fields.html" %}
+  <div class="settings-sections">
+    {% if not claude_ok %}
+    <div class="flash error">Es ist kein Claude-Token gesetzt – Episoden schlagen fehl. Trag ihn unter <a href="#claude">Claude</a> ein.</div>
+    {% endif %}
+    {% for s in sections %}
+    <form method="post" action="/settings/{{ s.id }}" class="card settings-section" id="{{ s.id }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <h2>{{ s.title }}</h2>
+      {% if s.intro %}<p class="hint">{{ s.intro | safe }}</p>{% endif %}
+      {% if open_section == s.id and errors %}<div class="flash error" role="alert">Bitte prüfe die markierten Felder.</div>{% endif %}
+      {% if s.id == "telegram" and settings.telegram_bot_token %}
+      <p class="status-line">{% if telegram.runner %}<span class="badge done">läuft</span>{% elif telegram.error %}<span class="badge failed">startet nicht</span> <span class="hint">{{ telegram.error }}</span>{% else %}<span class="badge">nicht gestartet</span>{% endif %}</p>
+      {% endif %}
+      <div class="fields">
+        {% for f in s.fields %}
+        <div class="field">{{ field(f, settings, form if open_section == s.id else {}, errors if open_section == s.id else {}, show_clear=true) }}</div>
+        {% endfor %}
+      </div>
+      <div class="actions"><button class="primary">Speichern</button></div>
+    </form>
+    {% endfor %}
 
-  {% if settings.telegram_bot_token %}
-  <p class="hint">Telegram-Bot: {% if telegram.runner %}✓ läuft{% elif telegram.error %}✗ startet nicht – {{ telegram.error }}{% else %}nicht gestartet{% endif %}</p>
-  {% endif %}
-
-  {% if not locked.web_password_hash %}
-  <fieldset>
-    <legend>Passwort ändern <span class="hint">optional</span></legend>
-    <label>Aktuelles Passwort <input type="password" name="current_password" autocomplete="current-password">
-      {% if errors.get('current_password') %}<span class="field-error">{{ errors.current_password }}</span>{% endif %}</label>
-    <div class="row">
-      <label>Neues Passwort <input type="password" name="password" minlength="10" autocomplete="new-password">
-        {% if errors.get('password') %}<span class="field-error">{{ errors.password }}</span>{% endif %}</label>
-      <label>Wiederholen <input type="password" name="password2" minlength="10" autocomplete="new-password">
-        {% if errors.get('password2') %}<span class="field-error">{{ errors.password2 }}</span>{% endif %}</label>
-    </div>
-  </fieldset>
-  {% endif %}
-
-  <button class="primary">Speichern</button>
-  <p class="hint">Klang, Cover und Podcast-Feed findest du unter <a href="/connections">Verbindungen</a>, die Prompts unter <a href="/prompts">Prompts</a>.</p>
-</form>
+    <form method="post" action="/settings/password" class="card settings-section" id="password">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <h2>Passwort ändern</h2>
+      {% if open_section == "password" and errors %}<div class="flash error" role="alert">Bitte prüfe die markierten Felder.</div>{% endif %}
+      <div class="field">
+        <label for="f-current">Aktuelles Passwort</label>
+        <input id="f-current" type="password" name="current_password" required autocomplete="current-password">
+        {% if errors.get('current_password') %}<span class="field-error">{{ errors.current_password }}</span>{% endif %}
+      </div>
+      <div class="row">
+        <div class="col"><label for="f-new">Neues Passwort</label>
+          <input id="f-new" type="password" name="password" required minlength="10" autocomplete="new-password">
+          {% if errors.get('password') %}<span class="field-error">{{ errors.password }}</span>{% endif %}</div>
+        <div class="col"><label for="f-new2">Wiederholen</label>
+          <input id="f-new2" type="password" name="password2" required minlength="10" autocomplete="new-password">
+          {% if errors.get('password2') %}<span class="field-error">{{ errors.password2 }}</span>{% endif %}</div>
+      </div>
+      <div class="actions"><button class="primary">Passwort ändern</button></div>
+    </form>
+  </div>
+</div>
 {% endblock %}

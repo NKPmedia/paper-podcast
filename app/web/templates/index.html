@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 {% if not claude_ok %}
-<div class="flash error">Claude ist nicht eingerichtet: <code>CLAUDE_CODE_OAUTH_TOKEN</code> fehlt in der <code>.env</code>. Erzeuge ihn auf deinem Rechner mit <code>claude setup-token</code> und starte den Container neu. Bis dahin schlagen Episoden fehl.</div>
+<div class="flash error">Claude ist nicht eingerichtet: Es fehlt der Claude-Token. Erzeuge ihn auf deinem Rechner mit <code>claude setup-token</code> und trag ihn unter <a href="/settings#claude">Einstellungen → Claude</a> ein. Bis dahin schlagen Episoden fehl.</div>
 {% endif %}
 <section class="card">
   <h1>Neue Episode</h1>

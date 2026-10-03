@@ -1,0 +1,33 @@
+{# Renders one settings field. Expects: f (Field), settings, form (previous input), errors #}
+{% macro field(f, settings, form, errors, show_clear=false) %}
+{% set err = errors.get(f.key) %}
+{% set current = form.get(f.key, (settings | attr(f.key)) if (settings | attr(f.key)) is not none else "") %}
+{% set described = (f.key ~ "-help " if f.help else "") ~ (f.key ~ "-error" if err else "") %}
+{% if f.kind == "bool" %}
+  {% set checked = (form.get(f.key) == "on") if form else (settings | attr(f.key)) %}
+  <input type="hidden" name="{{ f.key }}__present" value="1">
+  <label class="check field-bool"><input type="checkbox" name="{{ f.key }}" {% if checked %}checked{% endif %}
+    {% if described %}aria-describedby="{{ described }}"{% endif %}> {{ f.label }}</label>
+{% else %}
+  <label for="f-{{ f.key }}">{{ f.label }}{% if not f.required and f.kind == "secret" %} <span class="hint">optional</span>{% endif %}</label>
+  {% if f.kind == "select" %}
+    <select id="f-{{ f.key }}" name="{{ f.key }}" {% if described %}aria-describedby="{{ described }}"{% endif %}>
+      {% for value, label in f.options %}<option value="{{ value }}" {% if value == current %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  {% elif f.kind == "secret" %}
+    <input id="f-{{ f.key }}" type="password" name="{{ f.key }}" autocomplete="off"
+           placeholder="{% if (settings | attr(f.key)) %}gesetzt ✓ – leer lassen, um ihn zu behalten{% else %}{{ f.placeholder }}{% endif %}"
+           {% if err %}aria-invalid="true"{% endif %} {% if described %}aria-describedby="{{ described }}"{% endif %}>
+  {% else %}
+    <input id="f-{{ f.key }}" name="{{ f.key }}" value="{{ current }}"
+           {% if f.kind in ("int", "float") %}inputmode="decimal"{% elif f.kind == "url" %}type="url"{% endif %}
+           {% if f.placeholder %}placeholder="{{ f.placeholder }}"{% endif %} {% if f.required %}required{% endif %}
+           {% if err %}aria-invalid="true"{% endif %} {% if described %}aria-describedby="{{ described }}"{% endif %}>
+  {% endif %}
+{% endif %}
+{% if err %}<span class="field-error" id="{{ f.key }}-error">{{ err }}</span>{% endif %}
+{% if f.help %}<span class="hint field-help" id="{{ f.key }}-help">{{ f.help | safe }}</span>{% endif %}
+{% if f.kind == "secret" and (settings | attr(f.key)) and show_clear %}
+  <label class="check"><input type="checkbox" name="{{ f.key }}__clear"> entfernen</label>
+{% endif %}
+{% endmacro %}

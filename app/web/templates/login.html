@@ -4,7 +4,7 @@
 <form method="post" action="/login" class="card narrow">
   <h1>Anmelden</h1>
   {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
-  {% if insecure_http %}<div class="flash">Hinweis: Du bist über <b>http</b> verbunden. Die Anmeldung funktioniert nur über HTTPS (Reverse-Proxy), oder für einen Test mit <code>COOKIE_SECURE=false</code>.</div>{% endif %}
+  {% if insecure_http %}<div class="flash">Hinweis: Du bist über <b>http</b> verbunden. Die Anmeldung funktioniert nur über HTTPS (Reverse-Proxy), oder für einen Test ohne Proxy über die Ersteinrichtung bzw. Einstellungen → Zugang.</div>{% endif %}
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <input type="hidden" name="next" value="{{ next }}">
   <label>Passwort <input type="password" name="password" autofocus required autocomplete="current-password"></label>

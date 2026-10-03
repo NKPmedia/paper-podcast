@@ -42,7 +42,7 @@ def run_all(app):
 
 def test_feed(settings):
     settings, app = make_app(settings)
-    token = (settings.data_dir / "feed_token").read_text()
+    token = settings.feed_token
     with TestClient(app) as client:
         job_id = app.state.service.submit(EpisodeRequest(topic="Feed", options=EpisodeOptions(
             length=Length.kurz, research_depth=ResearchDepth.quick))).id

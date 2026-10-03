@@ -154,3 +154,25 @@ details > summary { cursor: pointer; }
 .field-error { display: block; color: var(--danger); font-weight: 600; font-size: 0.9rem; margin-top: 4px; }
 input[aria-invalid="true"] { border-color: var(--danger); }
 .hint code, .flash code { overflow-wrap: anywhere; }
+/* settings page */
+main:has(.settings-layout) { max-width: 1100px; }
+.settings-layout { display: grid; grid-template-columns: 220px 1fr; gap: 16px; align-items: start; }
+.settings-nav { position: sticky; top: 12px; }
+.settings-nav h1 { font-size: 1.2rem; }
+.settings-nav ul { list-style: none; padding: 0; margin: 8px 0; }
+.settings-nav li a { display: block; padding: 5px 8px; border-radius: 6px; text-decoration: none; color: var(--text); }
+.settings-nav li a:hover, .settings-nav li a:focus { background: var(--code-bg); }
+.settings-section { scroll-margin-top: 12px; }
+.settings-section .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 4px 20px; }
+.field { margin: 6px 0; min-width: 0; }
+.field > label, .col > label, fieldset > label { display: block; margin: 8px 0 0; font-weight: 600; }
+.field input, .field select, .col input { margin-top: 4px; }
+.field-help { display: block; margin-top: 4px; }
+.field-bool { margin-top: 12px; font-weight: 600; }
+.row > .col { flex: 1 1 200px; min-width: 0; }
+.status-line { margin: 0 0 8px; }
+@media (max-width: 760px) {
+  .settings-layout { grid-template-columns: 1fr; }
+  .settings-nav { position: static; }
+  .settings-nav ul { display: flex; flex-wrap: wrap; gap: 4px; }
+}

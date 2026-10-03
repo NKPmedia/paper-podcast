@@ -46,19 +46,21 @@ Open the web UI. On the first visit a short **setup dialog** asks for:
 | Password | For the web UI |
 | Claude token | Run `claude setup-token` once on your own machine |
 | Podcast name, host and expert names | |
-| Public address (optional) | For links |
-| Telegram bot token and chat IDs (optional) | |
-| Gemini API key (optional) | |
+| Telegram bot token (optional) | |
 | Allow plain-HTTP login | Only offered over HTTP; for testing without a proxy |
 
 **Where settings are stored:**
-- Everything entered in the dialog is saved in `settings.json` in the
-  `paper-podcast-data` volume, readable only by the owner. The volume holds all data:
-  episodes, database, settings, prompts, skills and uploads.
-- It can be changed later under **Einstellungen**.
-- Values passed as environment variables (`environment:` in the compose file, see
-  `.env.example` for all names) take precedence; the UI shows them as locked.
-- A Telegram token change restarts the bot immediately.
+- All configuration lives in the local SQLite database `app.sqlite3`, readable only by
+  the owner. There is no `.env` file.
+- The database sits in the `paper-podcast-data` volume, together with the episodes,
+  prompts, skills and uploads.
+- The setup dialog asks only for the essentials.
+- Everything else is on the **Einstellungen** page, in sections: Podcast, Claude
+  (token and models), Stimmen, Audio, Telegram, Recherche limits, Zugang & Netzwerk,
+  and Passwort.
+- Changes apply immediately, and a Telegram change restarts the bot.
+- To reset a forgotten password:
+  `docker compose exec paper-podcast python -m app.cli set-password`.
 
 **Networking:**
 - The web UI listens on `127.0.0.1:8000`. Point your reverse proxy (HTTPS) at it.

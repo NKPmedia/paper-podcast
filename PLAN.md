@@ -363,10 +363,9 @@ No change to the pipeline is needed. It is just a new job producer and a prompt 
 paper-podcast/
 ├── Dockerfile            python:3.12-slim + ffmpeg + TeX Live (pdflatex)
 ├── docker-compose.yml    one service `app`, volume ./data:/data, port 8000
-├── .env.example
 ├── app/
 │   ├── main.py           starts web, bot, scheduler, worker
-│   ├── config.py         pydantic-settings from env
+│   ├── config.py         settings stored in SQLite (edited in the web UI)
 │   ├── db.py             SQLite (SQLModel)
 │   ├── jobs.py           queue + worker + resume
 │   ├── pipeline/         research.py script.py handout.py tts/ audio.py
@@ -380,11 +379,12 @@ paper-podcast/
 └── tests/
 ```
 
-Environment variables:
-- **Claude**: `CLAUDE_CODE_OAUTH_TOKEN`.
-- **Web**: `WEB_PASSWORD_HASH`, `SESSION_SECRET`, `PUBLIC_BASE_URL`, `FEED_TOKEN`.
-- **Telegram**: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_CHAT_IDS`.
-- **Optional**: `GEMINI_API_KEY`.
+Configuration:
+- It lives in SQLite (`/data/app.sqlite3`, owner-only), not in environment variables.
+- The first-run setup dialog asks for the essentials: setup code, password, Claude
+  token, podcast and speaker names, and optionally the Telegram bot token.
+- The settings page covers everything else, in sections.
+- Only `DATA_DIR` comes from the environment.
 
 Runtime details:
 - The container runs as a non-root user.

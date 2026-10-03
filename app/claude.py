@@ -37,8 +37,8 @@ def explain(error: str) -> str:
     """Prefix a raw Claude error with a German explanation where we recognise the cause."""
     lower = error.lower()
     if any(hint in lower for hint in AUTH_HINTS):
-        return ("Claude konnte sich nicht anmelden. Prüfe CLAUDE_CODE_OAUTH_TOKEN in der .env "
-                "(neu erzeugen mit `claude setup-token`) und starte den Container neu. Details: " + error)
+        return ("Claude konnte sich nicht anmelden. Prüfe den Claude-Token unter Einstellungen → Claude "
+                "(neu erzeugen mit `claude setup-token`). Details: " + error)
     if ("rate" in lower and "limit" in lower) or "429" in lower or "usage limit" in lower:
         return ("Das Claude-Nutzungslimit ist erreicht. Später mit „Fortsetzen“ weitermachen; "
                 "fertige Schritte bleiben erhalten. Details: " + error)

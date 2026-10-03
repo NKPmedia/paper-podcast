@@ -129,7 +129,7 @@ class FakeTTS:
 
 @pytest.fixture
 def settings(tmp_path) -> Settings:
-    return Settings(_env_file=None, data_dir=tmp_path / "data", words_per_minute=10)
+    return Settings(data_dir=tmp_path / "data", words_per_minute=10)
 
 
 ARXIV_HTML = """<html><head><title>x</title><script>var a=1;</script></head><body>

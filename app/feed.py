@@ -10,7 +10,6 @@ import html
 import json
 from datetime import datetime, timezone
 from email.utils import format_datetime
-from pathlib import Path
 from xml.sax.saxutils import escape
 
 from app.config import Settings
@@ -112,9 +111,3 @@ def build_feed(settings: Settings, jobs: list[Job], base_url: str, token: str) -
         + "".join(items)
         + "</channel></rss>"
     )
-
-
-def load_or_create_token(configured: str, path: Path) -> str:
-    from app.auth import load_or_create_secret
-
-    return load_or_create_secret(configured, path)

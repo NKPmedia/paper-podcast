@@ -1,37 +1,60 @@
 {% extends "base.html" %}
+{% from "_field.html" import field %}
 {% block title %}Einrichtung · {{ settings.podcast_name }}{% endblock %}
 {% block content %}
 <form method="post" action="/setup" class="card setup">
   <h1>Willkommen 👋</h1>
-  <p>Ein paar Angaben, dann kann es losgehen. Alles lässt sich später unter <i>Einstellungen</i> ändern.</p>
+  <p>Nur das Nötigste – alles Weitere (Stimmen, Modelle, Audio, Telegram-Details …) findest du danach unter <i>Einstellungen</i>.</p>
   {% if errors %}<div class="flash error" role="alert">Bitte prüfe die markierten Felder.</div>{% endif %}
 
   <fieldset>
-    <legend>Einrichtungscode</legend>
-    <label>Code aus dem Server-Log
-      <input name="code" required autocomplete="off" autofocus placeholder="z.B. 1A2B-3C4D-5E6F"
-             {% if errors.get('code') %}aria-invalid="true" aria-describedby="code-error"{% endif %}>
-      {% if errors.get('code') %}<span class="field-error" id="code-error">{{ errors.code }}</span>{% endif %}
-      <span class="hint">Damit niemand anderes deinen frischen Server übernimmt. Anzeigen mit <code>docker compose logs paper-podcast</code>.</span>
-    </label>
+    <legend>1 · Einrichtungscode</legend>
+    <label for="f-code">Code aus dem Server-Log</label>
+    <input id="f-code" name="code" required autocomplete="off" autofocus placeholder="z.B. 1A2B-3C4D-5E6F"
+           {% if errors.get('code') %}aria-invalid="true" aria-describedby="code-error"{% endif %}>
+    {% if errors.get('code') %}<span class="field-error" id="code-error">{{ errors.code }}</span>{% endif %}
+    <span class="hint field-help">Damit niemand anderes deinen frischen Server übernimmt. Anzeigen mit <code>docker compose logs paper-podcast</code>.</span>
   </fieldset>
 
-  {% if not locked.web_password_hash %}
   <fieldset>
-    <legend>Passwort für diese Seite</legend>
+    <legend>2 · Passwort für diese Seite</legend>
     <div class="row">
-      <label>Passwort <input type="password" name="password" required minlength="10" autocomplete="new-password"
-        {% if errors.get('password') %}aria-invalid="true" aria-describedby="password-error"{% endif %}>
-        {% if errors.get('password') %}<span class="field-error" id="password-error">{{ errors.password }}</span>{% endif %}</label>
-      <label>Wiederholen <input type="password" name="password2" required minlength="10" autocomplete="new-password"
-        {% if errors.get('password2') %}aria-invalid="true" aria-describedby="password2-error"{% endif %}>
-        {% if errors.get('password2') %}<span class="field-error" id="password2-error">{{ errors.password2 }}</span>{% endif %}</label>
+      <div class="col">
+        <label for="f-password">Passwort</label>
+        <input id="f-password" type="password" name="password" required minlength="10" autocomplete="new-password"
+               {% if errors.get('password') %}aria-invalid="true" aria-describedby="password-error"{% endif %}>
+        {% if errors.get('password') %}<span class="field-error" id="password-error">{{ errors.password }}</span>{% endif %}
+      </div>
+      <div class="col">
+        <label for="f-password2">Wiederholen</label>
+        <input id="f-password2" type="password" name="password2" required minlength="10" autocomplete="new-password"
+               {% if errors.get('password2') %}aria-invalid="true" aria-describedby="password2-error"{% endif %}>
+        {% if errors.get('password2') %}<span class="field-error" id="password2-error">{{ errors.password2 }}</span>{% endif %}
+      </div>
     </div>
-    <span class="hint">Mindestens 10 Zeichen.</span>
+    <span class="hint field-help">Mindestens 10 Zeichen.</span>
+    {% if http %}
+    <label class="check field-bool"><input type="checkbox" name="allow_http" {% if form.get('allow_http') %}checked{% endif %}>
+      Anmeldung über unverschlüsseltes HTTP erlauben – nur zum Testen ohne HTTPS-Proxy</label>
+    {% endif %}
   </fieldset>
-  {% endif %}
 
-  {% include "_settings_fields.html" %}
+  <fieldset>
+    <legend>3 · Claude</legend>
+    {% for f in fields if f.key == "claude_code_oauth_token" %}{{ field(f, settings, form, errors) }}{% endfor %}
+  </fieldset>
+
+  <fieldset>
+    <legend>4 · Dein Podcast</legend>
+    {% for f in fields if f.key in ("podcast_name", "host_name", "expert_name") %}
+      <div class="field">{{ field(f, settings, form, errors) }}</div>
+    {% endfor %}
+  </fieldset>
+
+  <fieldset>
+    <legend>5 · Telegram <span class="hint">optional</span></legend>
+    {% for f in fields if f.key == "telegram_bot_token" %}{{ field(f, settings, form, errors) }}{% endfor %}
+  </fieldset>
 
   <button class="primary">Einrichtung abschließen</button>
 </form>

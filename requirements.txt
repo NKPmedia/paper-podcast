@@ -9,7 +9,6 @@ markdown-it-py==4.2.0
 matplotlib==3.11.2
 numpy==2.4.6
 pillow==12.3.0
-pydantic-settings==2.15.0
 pydantic==2.13.5
 pypdf==6.19.0
 python-multipart==0.0.32

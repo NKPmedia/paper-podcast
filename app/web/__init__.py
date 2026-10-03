@@ -23,9 +23,9 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.assets import FILES as ASSET_FILES
 from app.assets import MAX_UPLOAD_BYTES, AssetError, save_cover, save_jingle
-from app.auth import LoginThrottle, hash_password, load_or_create_secret, verify_password
+from app.auth import LoginThrottle, hash_password, verify_password
 from app.claude import claude_auth_configured
-from app.config import Settings, get_settings, locked, save_overrides
+from app.config import Settings, ensure_secrets, get_settings
 from app.db import JobStore
 from app.jobs import ContextFactory, JobError, JobService, Worker
 from app.models import EpisodeOptions, EpisodeRequest, Length, ResearchDepth
@@ -33,6 +33,7 @@ from app.pipeline import STAGE_ARTIFACTS, prompt_context, stages_for
 from app.prompts import BLOCK_DESCRIPTIONS, PromptStore
 from app.skills import STAGES as SKILL_STAGES
 from app.skills import MAX_ZIP_BYTES, SkillError, SkillStore
+from app.web import settings_ui
 from app.web.connectors import base_url, register_feed
 
 log = logging.getLogger(__name__)
@@ -116,13 +117,14 @@ def create_app(
 ) -> FastAPI:
     settings = settings or get_settings()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
+    ensure_secrets(settings)  # creates the (owner-only) database on first start
     store = JobStore(settings.db_path)
     prompts = PromptStore(settings.prompts_dir)
     skills = SkillStore(settings.skills_dir, settings.data_dir / "skills.json")
     service = JobService(settings, store, prompts)
     worker = Worker(service, context_factory)
     throttle = LoginThrottle()
-    feed_token = load_or_create_secret(settings.feed_token, settings.data_dir / "feed_token")
+    feed_token = settings.feed_token
 
     tz = ZoneInfo(settings.timezone)
 
@@ -176,7 +178,7 @@ def create_app(
     app.state.setup_code = setup_code
     app.add_middleware(
         SessionMiddleware,
-        secret_key=load_or_create_secret(settings.session_secret, settings.data_dir / "session_secret"),
+        secret_key=settings.session_secret,
         session_cookie="paper_podcast",
         max_age=30 * 24 * 3600,
         same_site="lax",
@@ -253,45 +255,13 @@ def create_app(
         if settings.cookie_secure and request.url.scheme == "http":
             message = ("Anmeldung ist nur über HTTPS möglich, weil das Sitzungs-Cookie als „Secure“ markiert ist. "
                        "Öffne die Seite über deinen Reverse-Proxy (https://…) oder setze für einen kurzen Test "
-                       "ohne Proxy COOKIE_SECURE=false in der .env und starte neu.")
+                       "ohne Proxy „Anmeldung nur über HTTPS erlauben“ unter Einstellungen → Zugang aus. Ein vergessenes "
+                       "Passwort setzt du mit: docker compose exec paper-podcast python -m app.cli set-password")
         else:
             message = "Das Formular ist abgelaufen. Bitte die Seite neu laden und noch einmal absenden."
         return render(request, "error.html", 400, message=message)
 
     # --- first-run setup and settings ------------------------------------------------
-
-    CHAT_IDS = re.compile(r"^\s*(-?\d+\s*(,\s*-?\d+\s*)*)?$")
-
-    def form_values(form) -> tuple[dict, dict]:
-        """Read the shared setup/settings fields. Returns (values to save, errors per field)."""
-        values, errors = {}, {}
-        for key in ("podcast_name", "host_name", "expert_name"):
-            text = str(form.get(key, "")).strip()
-            if key in form and not locked(settings, key):
-                if not text:
-                    errors[key] = "Bitte ausfüllen."
-                values[key] = text[:80]
-        url = str(form.get("public_base_url", "")).strip().rstrip("/")
-        if "public_base_url" in form:
-            if url and urlparse(url).scheme not in ("http", "https"):
-                errors["public_base_url"] = "Muss mit https:// (oder http://) beginnen."
-            values["public_base_url"] = url
-        chats = str(form.get("telegram_allowed_chat_ids", "")).strip()
-        if "telegram_allowed_chat_ids" in form:
-            if not CHAT_IDS.match(chats):
-                errors["telegram_allowed_chat_ids"] = "Nur Zahlen, getrennt durch Kommas."
-            values["telegram_allowed_chat_ids"] = chats.replace(" ", "")
-        for key in ("claude_code_oauth_token", "telegram_bot_token", "gemini_api_key"):
-            secret = str(form.get(key, "")).strip()
-            if secret:  # empty = keep the current value
-                values[key] = secret
-            if form.get(f"clear_{key}") == "on":
-                values[key] = ""
-        if values.get("telegram_bot_token") and not re.match(r"^\d+:[\w-]{20,}$", values["telegram_bot_token"]):
-            errors["telegram_bot_token"] = "Sieht nicht wie ein Bot-Token von @BotFather aus (Zahl:Zeichenkette)."
-        if "allow_http" in form or form.get("cookie_secure_field") == "1":
-            values["cookie_secure"] = form.get("allow_http") != "on"
-        return values, errors
 
     def password_errors(form) -> dict:
         password, again = str(form.get("password", "")), str(form.get("password2", ""))
@@ -301,23 +271,18 @@ def create_app(
             return {"password2": "Die Passwörter stimmen nicht überein."}
         return {}
 
-    def field_state() -> dict:
-        return {key: locked(settings, key) for key in (
-            "claude_code_oauth_token", "podcast_name", "host_name", "expert_name", "public_base_url",
-            "cookie_secure", "telegram_bot_token", "telegram_allowed_chat_ids", "gemini_api_key",
-            "web_password_hash")}
+    def telegram_key() -> tuple:
+        return (settings.telegram_bot_token, settings.telegram_allowed_chat_ids, settings.telegram_api_base_url)
 
-    async def apply(values: dict, telegram_before: tuple) -> None:
-        save_overrides(settings, values)
-        if (settings.telegram_bot_token, settings.telegram_allowed_chat_ids) != telegram_before:
-            await restart_telegram()
+    def setup_page(request: Request, errors: dict, form: dict, status: int = 200) -> Response:
+        return render(request, "setup.html", status, fields=settings_ui.SETUP_FIELDS, errors=errors, form=form,
+                      claude_ok=claude_auth_configured(), http=request.url.scheme == "http")
 
     @app.get("/setup")
     async def setup_form(request: Request):
         if settings.web_password_hash:
             return redirect("/")
-        return render(request, "setup.html", mode="setup", locked=field_state(), errors={}, form={},
-                      claude_ok=claude_auth_configured(), http=request.url.scheme == "http")
+        return setup_page(request, {}, {})
 
     @app.post("/setup")
     async def setup_save(request: Request):
@@ -332,57 +297,75 @@ def create_app(
             throttle.fail(client)
             errors["code"] = "Falscher Code. Er steht im Server-Log (docker compose logs)."
         errors |= password_errors(form)
-        values, value_errors = form_values(form)
+        values, value_errors = settings_ui.parse(settings_ui.SETUP_FIELDS, form)
         errors |= value_errors
         if not claude_auth_configured() and not values.get("claude_code_oauth_token"):
             errors["claude_code_oauth_token"] = "Ohne Claude-Token können keine Episoden entstehen."
+        if form.get("allow_http") == "on":
+            values["cookie_secure"] = False
         if errors:
-            safe_form = {k: v for k, v in form.items() if k not in (
-                "password", "password2", "code", "claude_code_oauth_token", "telegram_bot_token", "gemini_api_key")}
-            return render(request, "setup.html", 400, mode="setup", locked=field_state(), errors=errors, form=safe_form,
-                          claude_ok=claude_auth_configured(), http=request.url.scheme == "http")
+            keep = {k: v for k, v in form.items() if settings_ui.FIELDS.get(k) and settings_ui.FIELDS[k].kind != "secret"}
+            return setup_page(request, errors, keep | {"allow_http": form.get("allow_http")}, 400)
         throttle.reset(client)
         values["web_password_hash"] = hash_password(str(form["password"]))
-        await apply(values, ("", ""))
+        settings_ui.apply(settings, values)
+        await restart_telegram()
         log.info("Ersteinrichtung abgeschlossen")
         request.session.clear()
         request.session["user"] = "owner"
-        flash(request, "Fertig eingerichtet! Gib oben dein erstes Thema ein."
-              + (" Schreib deinem Telegram-Bot eine Nachricht – er antwortet mit deiner Chat-ID, "
-                 "die du unter Einstellungen einträgst." if settings.telegram_bot_token
-                 and not settings.telegram_allowed_chat_ids else ""))
+        hint = (" Schreib deinem Telegram-Bot eine Nachricht – er antwortet mit deiner Chat-ID, die du unter "
+                "Einstellungen → Telegram einträgst.") if settings.telegram_bot_token else ""
+        flash(request, "Fertig eingerichtet! Gib oben dein erstes Thema ein." + hint)
         return redirect("/")
+
+    def settings_page(request: Request, errors: dict | None = None, form: dict | None = None,
+                      open_section: str = "", status: int = 200) -> Response:
+        return render(request, "settings.html", status, sections=settings_ui.SECTIONS, errors=errors or {},
+                      form=form or {}, open_section=open_section, telegram=telegram_state,
+                      claude_ok=claude_auth_configured())
 
     @app.get("/settings")
     async def settings_form(request: Request):
         require_user(request)
-        return render(request, "settings.html", mode="settings", locked=field_state(), errors={}, form={},
-                      claude_ok=claude_auth_configured(), http=request.url.scheme == "http",
-                      telegram=telegram_state)
+        return settings_page(request)
 
-    @app.post("/settings")
-    async def settings_save(request: Request):
+    @app.post("/settings/password")
+    async def settings_password(request: Request):
         require_user(request)
         form = await request.form()
         check_csrf(request, str(form.get("csrf", "")))
-        values, errors = form_values(form)
-        if form.get("password") and not locked(settings, "web_password_hash"):
-            if not verify_password(str(form.get("current_password", "")), settings.web_password_hash):
-                errors["current_password"] = "Das aktuelle Passwort ist falsch."
-            errors |= password_errors(form)
-            if not errors:
-                values["web_password_hash"] = hash_password(str(form["password"]))
+        errors = {}
+        if not verify_password(str(form.get("current_password", "")), settings.web_password_hash):
+            errors["current_password"] = "Das aktuelle Passwort ist falsch."
+        errors |= password_errors(form)
         if errors:
-            return render(request, "settings.html", 400, mode="settings", locked=field_state(), errors=errors, form=dict(form),
-                          claude_ok=claude_auth_configured(), http=request.url.scheme == "http",
-                          telegram=telegram_state)
-        await apply(values, (settings.telegram_bot_token, settings.telegram_allowed_chat_ids))
-        message = "Einstellungen gespeichert."
-        if telegram_state["error"]:
+            return settings_page(request, errors, {}, "password", 400)
+        settings_ui.apply(settings, {"web_password_hash": hash_password(str(form["password"]))})
+        flash(request, "Passwort geändert.")
+        return redirect("/settings#password")
+
+    @app.post("/settings/{section_id}")
+    async def settings_save(request: Request, section_id: str):
+        require_user(request)
+        form = await request.form()
+        check_csrf(request, str(form.get("csrf", "")))
+        section = next((s for s in settings_ui.SECTIONS if s.id == section_id), None)
+        if section is None:
+            return Response(status_code=404)
+        values, errors = settings_ui.parse(section.fields, form)
+        before = telegram_key()
+        if not errors:
+            errors = settings_ui.apply(settings, values)
+        if errors:
+            keep = {k: v for k, v in form.items() if settings_ui.FIELDS.get(k) and settings_ui.FIELDS[k].kind != "secret"}
+            return settings_page(request, errors, keep, section_id, 400)
+        if telegram_key() != before:
+            await restart_telegram()
+        if section_id == "telegram" and telegram_state["error"]:
             flash(request, f"Gespeichert, aber der Telegram-Bot startet nicht: {telegram_state['error']}", "error")
         else:
-            flash(request, message)
-        return redirect("/settings")
+            flash(request, f"„{section.title}“ gespeichert.")
+        return redirect(f"/settings#{section_id}")
 
     # --- auth ---------------------------------------------------------------------
 
