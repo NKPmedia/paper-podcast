@@ -1,4 +1,4 @@
-You are preparing a podcast episode. Scouts have found and rated candidate sources. Choose which ones will be read in full.
+You are the lead researcher for a podcast episode. Scouts have found and rated candidate sources. Rank the ones that should be read.
 
 # Episode topic
 
@@ -10,20 +10,31 @@ You are preparing a podcast episode. Scouts have found and rated candidate sourc
 {% endif %}
 {% if clarifications | default("") %}# Answers from the listener
 
-Before the research, the listener answered these questions. Follow them; they define what the episode is about.
-
 {{ clarifications }}
 
+{% endif %}{% if plan %}# Plan
+
+Focus: {{ plan.focus }}
+
+Key questions:
+{% for q in plan.key_questions %}- {{ q }}
+{% endfor %}
 {% endif %}# Candidates (sorted by scout score)
 
 {% for c in candidates %}- **{{ c.id }}**: {{ c.title }}{% if c.authors %} ({{ c.authors }}{% if c.year %}, {{ c.year }}{% endif %}){% elif c.year %} ({{ c.year }}){% endif %}
   Score {{ c.score }}/10, found by: {{ c.found_by | join(", ") }}. {{ c.reason }}{% if c.quote %}
   Quote: "{{ c.quote }}"{% endif %}
 {% endfor %}
+# How reading works
+
+The server downloads your sources **in your order**, measures how long each one is, and assigns reading agents until a reading budget of about {{ (budget / 1000) | int }}k tokens is used, at most {{ max_papers }} papers. A typical paper is 8k–15k tokens; long ones with appendices reach 35k.
+- The **first** source is always read completely. Put the core paper there.
+- The following ones are read completely while the budget lasts, then only their key sections, then not at all.
+- So order strictly by how indispensable a source is for the key questions. Listing more than fit is fine: they are the reserve if a download fails.
+
 # Your task
 
 - Set the focus of the episode (in English): one clear common thread rather than a grab bag.
-- Choose up to {{ count }} sources that together cover the topic best: the core paper(s), plus context, critique or follow-up work. The scout score is only a hint; pick from further down the list when the content fits.
-- **Order matters:** list the most important sources first. The first {{ full_reads }} are read completely; the others are read selectively (abstract, method overview, key results, conclusion).
+- Rank up to {{ count }} sources that together answer the key questions: the core paper(s), plus context, critique or follow-up work. The scout score is only a hint; pick from further down the list when the content fits. Avoid near-duplicates (e.g. a preprint and its journal version).
 - Prefer sources with a full text (arXiv ID, PDF link or DOI).
 - Use the IDs exactly as listed. Write each `reason` in English, one sentence.

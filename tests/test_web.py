@@ -115,7 +115,7 @@ def test_create_episode_runs_through_worker(web_settings):
 
 def test_failed_job_shows_error_and_can_resume(web_settings):
     responses = default_responses()
-    responses["ScoutResult"] = [lambda call: (_ for _ in ()).throw(RuntimeError("kaputt"))] * 1
+    responses["ScoutResult"] = [lambda call: (_ for _ in ()).throw(RuntimeError("kaputt"))] * 2
     with make_client(web_settings, start_worker=False, responses=responses) as client:
         login(client)
         client.post("/episodes", data={"csrf": csrf(client), "topic": "X", "length": "kurz", "depth": "quick"})
@@ -123,8 +123,8 @@ def test_failed_job_shows_error_and_can_resume(web_settings):
         job = app.state.service.store.claim_next()
         asyncio.run(app.state.worker.run_job(job))
         stored = app.state.service.store.get(job.id)
-        assert stored.status == "failed" and stored.error.startswith("Die Recherche ist fehlgeschlagen (der Scout). kaputt")
-        assert "Traceback (most recent call last)" in stored.error and "Scout 'overview'" in stored.error
+        assert stored.status == "failed" and stored.error.startswith("Die Recherche ist fehlgeschlagen (alle 2 Scouts). kaputt")
+        assert "Traceback (most recent call last)" in stored.error and "Scout 'Core work'" in stored.error
         page = client.get(f"/episodes/{job.id}")
         assert "Die Recherche ist fehlgeschlagen" in page.text and "Fortsetzen" in page.text
         assert "Technische Details (Fehlertext und Stacktrace)" in page.text and "Traceback" in page.text

@@ -78,7 +78,7 @@ def _describe(entry: dict) -> tuple[str, str, str]:
         return "info", entry.get("message", ""), ""
     if event == "claude":
         step = entry.get("step", "")
-        step = step.replace("scout:", "Scout ") if step else ""
+        step = step.replace("scout:", "Scout ").replace("reader:", "Leser ") if step else ""
         if entry.get("attempt", 1) and entry.get("attempt", 1) > 1:
             step = f"{step} Versuch {entry['attempt']}".strip()
         tokens = call_tokens(entry)
@@ -86,9 +86,11 @@ def _describe(entry: dict) -> tuple[str, str, str]:
         if tokens["total"]:
             parts.append(f"{fmt_tokens(tokens['total'])} Tokens")
         for key, label in (("candidates", "Kandidaten"), ("selected", "ausgewählt"), ("sources", "Quellen"),
-                           ("words", "Wörter")):
+                           ("words", "Wörter"), ("questions", "Fragen")):
             if entry.get(key) is not None:
                 parts.append(f"{entry[key]} {label}")
+        if entry.get("relevance") is not None:
+            parts.append(f"Relevanz {entry['relevance']:g}/10")
         if entry.get("skills_used"):
             parts.append("Skills: " + ", ".join(entry["skills_used"]))
         detail = "\n".join(entry.get("problems") or [])
@@ -105,6 +107,22 @@ def _describe(entry: dict) -> tuple[str, str, str]:
         text = (f"Antworten erhalten ({answered} von {total})" if answered
                 else "Ohne Antworten fortgesetzt – Claude entscheidet selbst")
         return "done", text, ""
+    if event == "plan":
+        scouts = entry.get("scouts") or []
+        detail = "Fokus: " + entry.get("focus", "") + "\n\nLeitfragen:\n" + "\n".join(
+            f"- {q}" for q in entry.get("key_questions") or [])
+        return "info", f"Rechercheplan: {len(scouts)} Scouts ({', '.join(scouts)})", detail
+    if event == "reading":
+        papers = entry.get("papers") or []
+        read = [p for p in papers if p.get("mode") != "skipped"]
+        full = sum(1 for p in read if p.get("mode") == "full")
+        text = (f"Lesebudget: {len(read)} von {len(papers)} Papern werden gelesen ({full} komplett), "
+                f"{fmt_tokens(entry.get('used'))} von {fmt_tokens(entry.get('budget'))} Tokens")
+        detail = "\n".join(f"{p.get('title', '')[:70]} · {fmt_tokens(p.get('tokens'))} Tokens · {p.get('reason', '')}"
+                           for p in papers)
+        return "info", text, detail
+    if event == "reader_failed":
+        return "warn", f"Leser für {entry.get('paper', '')} fehlgeschlagen", entry.get("error", "")
     if event == "scout_failed":
         return "error", f"Scout {entry.get('angle', '')} fehlgeschlagen", entry.get("error", "")
     if event == "downloads":

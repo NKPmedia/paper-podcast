@@ -45,6 +45,23 @@ SCOUT = {
     ]
 }
 SELECTION = {"focus": "Ergebnis A", "selected": [{"id": "arxiv:2401.00001", "reason": "Kern"}]}
+PLAN = {
+    "focus": "Ergebnis A und seine Grenzen",
+    "key_questions": ["Was zeigt das Paper?", "Wo sind die Grenzen?"],
+    "tasks": [
+        {"title": "Core work", "objective": "Find the core paper", "search_hints": "transformer", "avoid": ""},
+        {"title": "Foundations", "objective": "Prior work", "search_hints": "attention", "avoid": "core"},
+        {"title": "Critique", "objective": "Replications, limitations, opposing views", "search_hints": "critique",
+         "avoid": ""},
+    ],
+}
+NOTES = {
+    "relevance": 9,
+    "summary": "Das Paper zeigt Ergebnis A.",
+    "evidence": "- Ergebnis A [Muster 2024, papers/arxiv_2401.00001.md:5-9]",
+    "podcast_material": "- Analogie: Staffellauf [Muster 2024, papers/arxiv_2401.00001.md:12-14]",
+    "limitations": "Nur ein Datensatz.",
+}
 
 
 HANDOUT = {
@@ -70,6 +87,8 @@ def default_responses(script: dict | None = None) -> dict:
         "PlotFixes": [PLOT_FIX],
         "ScoutResult": [SCOUT] * 10,
         "Selection": [SELECTION],
+        "ResearchPlan": [PLAN] * 3,
+        "PaperNotes": [NOTES] * 20,
         "ResearchResult": [RESEARCH],
         "Script": [script or make_script(words_per_line=4)],
     }

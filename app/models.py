@@ -84,6 +84,19 @@ class ClarificationRequest(BaseModel):
                                                 "needs_clarification is false")
 
 
+class ScoutTask(BaseModel):
+    title: str = Field(description="2 to 4 words, e.g. 'Core method' or 'Critique and replications'")
+    objective: str = Field(description="What this scout must find, and why it matters for the episode")
+    search_hints: str = Field(description="Concrete search terms, author names, venues or APIs to try first")
+    avoid: str = Field(default="", description="What is out of scope for this scout (covered by others)")
+
+
+class ResearchPlan(BaseModel):
+    focus: str = Field(description="One or two sentences: the angle and common thread of the episode")
+    key_questions: list[str] = Field(description="3 to 8 questions the episode must answer")
+    tasks: list[ScoutTask] = Field(description="One task per scout, each a distinct perspective")
+
+
 class Candidate(BaseModel):
     """A paper or source proposed by a scout."""
 
@@ -116,6 +129,18 @@ class SelectedPaper(BaseModel):
 class Selection(BaseModel):
     focus: str = Field(description="One or two sentences: the focus and common thread of the episode")
     selected: list[SelectedPaper]
+
+
+class PaperNotes(BaseModel):
+    """What one reader agent extracts from one paper (contextual summary with references)."""
+
+    relevance: float = Field(ge=0, le=10, description="How much this paper helps answer the key questions, 0 to 10")
+    summary: str = Field(description="Three to five sentences: what the paper does and finds")
+    evidence: str = Field(description="Markdown bullets answering the key questions: claims, methods, numbers, "
+                                      "each with a reference [Tag, file:lines]")
+    podcast_material: str = Field(description="Markdown bullets: examples, analogies, surprising findings, "
+                                              "verbatim quotes, each with a reference")
+    limitations: str = Field(description="Limitations, caveats and open questions named by the authors or evident")
 
 
 class ResearchResult(BaseModel):

@@ -1,10 +1,21 @@
-"""Stage 1: research in four resumable steps.
+"""Stage 1: research, modelled on multi-agent deep-research systems.
 
-1a. Scouts (cheap model, parallel, one per angle) search broadly and return
-    ranked candidates → ``scouts/<angle>.json`` → merged ``candidates.json``
-1b. Selection (main model) picks the papers to read      → ``selection.json``
-1c. Our code downloads the full texts as Markdown         → ``papers/``
-1d. The main model reads all of them and writes notes     → ``research.md``, ``sources.json``
+Every step writes its artifact, so an interrupted job resumes where it stopped.
+
+0.  Clarifying questions (``app.pipeline.clarify``)        → ``clarify.json``
+1.  Plan: the lead model writes a research brief with key
+    questions and one task per scout (effort scales with depth) → ``plan.json``
+2.  Scouts (cheap model, parallel, one per task) search and
+    rank candidates                                       → ``scouts/<task>.json`` → ``candidates.json``
+3.  Selection: the lead model ranks the sources to read   → ``selection.json``
+4.  Download the full texts as Markdown (our code)        → ``papers/*.md``, ``papers/index.json``
+5.  Reading budget: from the measured length of every paper
+    decide how many are read, and which completely         → ``reading.json``
+6.  Readers (parallel, one fresh context per paper) extract
+    evidence for the key questions with line references and
+    a relevance score                                     → ``papers/*.notes.json``
+7.  Synthesis: the lead model cross-checks the reader notes,
+    verifies in the full texts, fills gaps, writes the notes → ``research.md``, ``sources.json``
 """
 
 from __future__ import annotations
@@ -16,18 +27,20 @@ import shutil
 from dataclasses import dataclass
 
 from app.claude import ClaudeCall
+from app.errors import PodcastError
 from app.models import (
     Candidate,
+    PaperNotes,
     RankedCandidate,
     ResearchDepth,
+    ResearchPlan,
     ResearchResult,
     ScoutResult,
     SelectedPaper,
     Selection,
     json_schema,
 )
-from app.papers import download_all, normalize_arxiv_id, to_index
-from app.errors import PodcastError
+from app.papers import download_all, file_key, normalize_arxiv_id, to_index
 from app.pipeline import clarify
 from app.prompts import render_stage
 
@@ -35,47 +48,51 @@ NAME = "research"
 DESCRIPTION = "Claude recherchiert das Thema"
 
 SCOUT_TOOLS = ["WebSearch", "WebFetch", "Read"]
-# Grep lets the reader pull a paper's outline (its Markdown headings) before reading.
-READ_TOOLS = ["Read", "Grep", "WebSearch", "WebFetch"]
-# Enough for the selection to choose from without bloating its prompt.
-MAX_CANDIDATES = 30
+# Grep lets readers pull a paper's outline (its Markdown headings) before reading.
+READER_TOOLS = ["Read", "Grep", "WebFetch"]
+LEAD_TOOLS = ["Read", "Grep", "WebSearch", "WebFetch"]
+MAX_CANDIDATES = 30  # merged shortlist shown to the selection
+READER_TURNS = 20  # outline + ~6 reads of 600 lines + the answer, with headroom
+READER_CONCURRENCY = 3
+LEAD_SEARCHES = 5  # gap-filling searches during the synthesis
 
-ANGLES = {
-    "overview": "Broad overview: the core paper(s) on the topic, key survey articles and recent developments.",
-    "background": "Background and prior work: which work does the topic build on? Classics, foundations, surveys.",
-    "core": "Core papers on method and results: the central papers with the most important findings and numbers.",
-    "critique": "Critique and context: replications, limitations, opposing views, follow-up work and practical applications.",
-    "citations": "Citation network: find the core paper and use Semantic Scholar to trace who cites it (influential "
-                 "follow-up work) and what it builds on.",
-    "recent": "Latest developments from the past 12 to 24 months: recent preprints and conference papers.",
-}
+# Token estimates for the reading budget (about 4 characters per token).
+CHARS_PER_TOKEN = 4
+WEBFETCH_TOKENS = 4_000  # a paper without full text, read through WebFetch answers
+
+
+def selective_tokens(tokens: int) -> int:
+    """Abstract, introduction, method overview, results and conclusion: roughly a fifth plus a base."""
+    return min(tokens, 8_000 + tokens // 5)
 
 
 @dataclass(frozen=True)
 class DepthProfile:
-    angles: tuple[str, ...]
+    min_scouts: int
+    max_scouts: int  # the plan picks a number in this range, by how complex the topic is
     candidates_per_scout: int
     searches_per_scout: int  # WebSearch + API queries; keeps cheap scouts cheap
-    papers: int  # full texts downloaded for the main model
-    full_reads: int  # of those, the top-ranked ones are read completely; the rest selectively
     scout_turns: int  # searches + skill/reference reads + a few metadata look-ups + the answer
-    main_turns: int  # ~3 Read calls per paper + follow-up searches + the answer, with headroom
+    shortlist: int  # sources the selection ranks; downloaded in that order
+    max_papers: int  # at most this many are read
+    read_budget: int  # tokens of paper text all readers together may read
+    lead_turns: int  # synthesis: reading notes, spot checks, gap searches, the answer
 
 
-# Sized so that the selected full texts (each capped by ``paper_max_chars``, ~35k
-# tokens) still fit into one context window together with the prompt and notes.
+# A typical paper is 8k–15k tokens; long ones with appendices reach the 35k cap
+# (``paper_max_chars``). Each reader has its own context, so the budget limits
+# time and quota, not context size.
 PROFILES = {
-    ResearchDepth.quick: DepthProfile(("overview",), 8, 5, 2, 2, 12, 30),
-    ResearchDepth.medium: DepthProfile(("background", "core", "critique"), 8, 5, 4, 2, 12, 60),
-    ResearchDepth.deep: DepthProfile(("background", "core", "critique", "citations", "recent"), 10, 7, 6, 3, 14, 90),
+    ResearchDepth.quick: DepthProfile(1, 2, 8, 5, 12, shortlist=4, max_papers=3, read_budget=60_000, lead_turns=25),
+    ResearchDepth.medium: DepthProfile(2, 4, 8, 5, 12, shortlist=7, max_papers=5, read_budget=140_000, lead_turns=40),
+    ResearchDepth.deep: DepthProfile(3, 6, 10, 7, 14, shortlist=10, max_papers=8, read_budget=260_000, lead_turns=60),
 }
 
 
 def depth_hint(depth: ResearchDepth) -> str:
-    """Short German description for the web UI and Telegram, e.g. '3 Scouts, 4 Paper'."""
+    """Short German description for the web UI and Telegram."""
     p = PROFILES[depth]
-    scouts = f"{len(p.angles)} Scout" + ("s" if len(p.angles) > 1 else "")
-    return f"{scouts}, {p.papers} Paper ({p.full_reads} komplett gelesen)"
+    return f"{p.min_scouts}–{p.max_scouts} Scouts, bis {p.max_papers} Paper, Lesebudget ~{p.read_budget // 1000}k Tokens"
 
 
 def is_done(ctx) -> bool:
@@ -83,7 +100,8 @@ def is_done(ctx) -> bool:
 
 
 def reset(ctx) -> None:
-    for name in ("candidates.json", "selection.json"):
+    """Start the research over; the answers to clarifying questions are kept."""
+    for name in ("plan.json", "candidates.json", "selection.json", "reading.json"):
         ctx.path(name).unlink(missing_ok=True)
     for name in ("scouts", "papers"):
         shutil.rmtree(ctx.path(name), ignore_errors=True)
@@ -102,7 +120,49 @@ def _log_claude(ctx, step: str, model: str, result, **extra) -> None:
     ctx.log_claude(NAME, model, result, step=step, **extra)
 
 
-# --- 1a. Scouts -------------------------------------------------------------------
+def _common(ctx) -> dict:
+    """Prompt variables every research step shares."""
+    return {
+        "topic": ctx.request.topic,
+        "extra_instructions": ctx.request.options.extra_instructions,
+        "clarifications": clarify.answers_text(ctx.job_dir),
+    }
+
+
+def load_plan(ctx) -> ResearchPlan | None:
+    path = ctx.path("plan.json")
+    return ResearchPlan.model_validate(_read_json(path)) if path.exists() else None
+
+
+# --- 1. Plan --------------------------------------------------------------------------
+
+
+async def make_plan(ctx, profile: DepthProfile) -> ResearchPlan:
+    await ctx.notify(NAME, "Claude plant die Recherche")
+    prompt = render_stage("plan", blocks=ctx.blocks, min_scouts=profile.min_scouts, max_scouts=profile.max_scouts,
+                          depth=ctx.request.options.research_depth.value, **_common(ctx))
+    model = ctx.settings.research_main_model
+    result = await ctx.claude.run(ClaudeCall(
+        prompt=prompt, cwd=ctx.job_dir, tools=[], system_append=ctx.blocks["system"],
+        output_schema=json_schema(ResearchPlan), max_turns=3, model=model,
+    ))
+    plan = ResearchPlan.model_validate(result.structured)
+    if not plan.tasks:
+        raise PodcastError("Claude hat keinen Rechercheplan erstellt. Mit „Fortsetzen“ erneut versuchen.",
+                           f"plan without tasks: {result.structured}")
+    plan.tasks = plan.tasks[: profile.max_scouts]
+    plan.key_questions = plan.key_questions[:8]
+    _log_claude(ctx, "plan", model, result, scouts=len(plan.tasks), questions=len(plan.key_questions))
+    ctx.log.write("plan", stage=NAME, focus=plan.focus, scouts=[t.title for t in plan.tasks],
+                  key_questions=plan.key_questions)
+    return plan
+
+
+def task_ids(plan: ResearchPlan) -> list[str]:
+    return [f"t{i + 1}" for i in range(len(plan.tasks))]
+
+
+# --- 2. Scouts -------------------------------------------------------------------
 
 
 def _norm_title(title: str) -> str:
@@ -159,53 +219,40 @@ def merge_candidates(results: dict[str, list[Candidate]]) -> list[RankedCandidat
     return ranked[:MAX_CANDIDATES]
 
 
-async def _run_scout(ctx, angle: str, profile: DepthProfile, skills: list[str]) -> list[Candidate]:
-    out = ctx.path(f"scouts/{angle}.json")
+async def _run_scout(ctx, task_id: str, task, plan: ResearchPlan, profile: DepthProfile,
+                     skills: list[str]) -> list[Candidate]:
+    out = ctx.path(f"scouts/{task_id}.json")
     if out.exists():
         return [Candidate(**c) for c in _read_json(out)]
-    opts = ctx.request.options
     prompt = render_stage(
-        "scout",
-        blocks=ctx.blocks,
-        topic=ctx.request.topic,
-        extra_instructions=opts.extra_instructions,
-        angle=ANGLES[angle],
-        clarifications=clarify.answers_text(ctx.job_dir),
-        count=profile.candidates_per_scout,
-        searches=profile.searches_per_scout,
+        "scout", blocks=ctx.blocks, task=task, plan=plan,
+        count=profile.candidates_per_scout, searches=profile.searches_per_scout, **_common(ctx),
     )
     model = ctx.settings.research_scout_model
-    result = await ctx.claude.run(
-        ClaudeCall(
-            prompt=prompt,
-            cwd=ctx.job_dir,
-            tools=SCOUT_TOOLS,
-            skills=skills,
-            system_append=ctx.blocks["system"],
-            output_schema=json_schema(ScoutResult),
-            max_turns=profile.scout_turns,
-            model=model,
-        )
-    )
+    result = await ctx.claude.run(ClaudeCall(
+        prompt=prompt, cwd=ctx.job_dir, tools=SCOUT_TOOLS, skills=skills, system_append=ctx.blocks["system"],
+        output_schema=json_schema(ScoutResult), max_turns=profile.scout_turns, model=model,
+    ))
     candidates = ScoutResult.model_validate(result.structured).candidates
-    _log_claude(ctx, f"scout:{angle}", model, result, candidates=len(candidates))
+    _log_claude(ctx, f"scout:{task.title}", model, result, candidates=len(candidates))
     _write_json(out, [c.model_dump() for c in candidates])
     return candidates
 
 
-async def run_scouts(ctx, profile: DepthProfile, skills: list[str]) -> list[RankedCandidate]:
-    await ctx.notify(NAME, f"{len(profile.angles)} Scout(s) suchen nach Quellen")
+async def run_scouts(ctx, plan: ResearchPlan, profile: DepthProfile, skills: list[str]) -> list[RankedCandidate]:
+    ids = task_ids(plan)
+    await ctx.notify(NAME, f"{len(ids)} Scout(s) suchen nach Quellen: " + ", ".join(t.title for t in plan.tasks))
     outcomes = await asyncio.gather(
-        *(_run_scout(ctx, angle, profile, skills) for angle in profile.angles),
+        *(_run_scout(ctx, tid, task, plan, profile, skills) for tid, task in zip(ids, plan.tasks)),
         return_exceptions=True,
     )
     results, failures = {}, {}
-    for angle, outcome in zip(profile.angles, outcomes):
+    for tid, task, outcome in zip(ids, plan.tasks, outcomes):
         if isinstance(outcome, BaseException):
-            failures[angle] = outcome
-            ctx.log.write("scout_failed", stage=NAME, angle=angle, error=f"{type(outcome).__name__}: {outcome}")
+            failures[task.title] = outcome
+            ctx.log.write("scout_failed", stage=NAME, angle=task.title, error=f"{type(outcome).__name__}: {outcome}")
         else:
-            results[angle] = outcome
+            results[tid] = outcome
     if not results:
         raise scouts_failed(failures)
     ranked = merge_candidates(results)
@@ -234,32 +281,21 @@ def scouts_failed(failures: dict[str, BaseException]) -> PodcastError:
     return PodcastError(message, details)
 
 
-# --- 1b. Selection ----------------------------------------------------------------
+# --- 3. Selection ---------------------------------------------------------------------
 
 
-async def select_papers(ctx, candidates: list[RankedCandidate], profile: DepthProfile) -> Selection:
+async def select_papers(ctx, candidates: list[RankedCandidate], plan: ResearchPlan | None,
+                        profile: DepthProfile) -> Selection:
     await ctx.notify(NAME, f"Auswahl der Paper aus {len(candidates)} Kandidaten")
     prompt = render_stage(
-        "select",
-        topic=ctx.request.topic,
-        extra_instructions=ctx.request.options.extra_instructions,
-        candidates=candidates,
-        count=profile.papers,
-        clarifications=clarify.answers_text(ctx.job_dir),
-        full_reads=profile.full_reads,
+        "select", candidates=candidates, plan=plan, count=profile.shortlist, max_papers=profile.max_papers,
+        budget=profile.read_budget, **_common(ctx),
     )
     model = ctx.settings.research_main_model
-    result = await ctx.claude.run(
-        ClaudeCall(
-            prompt=prompt,
-            cwd=ctx.job_dir,
-            tools=[],
-            system_append=ctx.blocks["system"],
-            output_schema=json_schema(Selection),
-            max_turns=3,
-            model=model,
-        )
-    )
+    result = await ctx.claude.run(ClaudeCall(
+        prompt=prompt, cwd=ctx.job_dir, tools=[], system_append=ctx.blocks["system"],
+        output_schema=json_schema(Selection), max_turns=3, model=model,
+    ))
     selection = Selection.model_validate(result.structured)
     known = {c.id for c in candidates}
     valid, seen = [], set()
@@ -268,50 +304,126 @@ async def select_papers(ctx, candidates: list[RankedCandidate], profile: DepthPr
             valid.append(paper)
             seen.add(paper.id)
     dropped = len(selection.selected) - len(valid)
-    selection.selected = valid[: profile.papers]
+    selection.selected = valid[: profile.shortlist]
     if not selection.selected:  # model returned only unknown IDs: fall back to the ranking
         selection.selected = [
-            SelectedPaper(id=c.id, reason="Picked automatically by relevance score") for c in candidates[: profile.papers]
+            SelectedPaper(id=c.id, reason="Picked automatically by relevance score")
+            for c in candidates[: profile.shortlist]
         ]
     _log_claude(ctx, "select", model, result, selected=len(selection.selected), dropped=dropped)
     return selection
 
 
-# --- 1d. Deep reading ---------------------------------------------------------------
+# --- 5. Reading budget -------------------------------------------------------------------
 
 
-async def read_and_write_notes(ctx, candidates, selection, papers, profile, skills) -> ResearchResult:
-    full = sum(1 for p in papers if p["file"])
-    await ctx.notify(NAME, f"Claude liest {len(papers)} Paper ({full} im Volltext, {len(papers) - full} per WebFetch)")
+def plan_reading(papers: list[dict], profile: DepthProfile) -> list[dict]:
+    """Decide from the measured lengths how many papers are read, and how.
+
+    ``papers`` are in selection order, each with ``tokens`` (0 without a full text).
+    The first readable paper is always read completely (it is the core paper). The
+    others are read completely while the budget allows, otherwise selectively, and
+    skipped once neither fits or ``max_papers`` is reached.
+    """
+    used, count, plan = 0, 0, []
+    for paper in papers:
+        tokens = paper.get("tokens", 0)
+        entry = {"id": paper["id"], "title": paper.get("title", ""), "file": paper.get("file", ""),
+                 "tokens": tokens}
+        if count >= profile.max_papers:
+            entry.update(mode="skipped", cost=0, reason=f"Höchstzahl von {profile.max_papers} Papern erreicht")
+        elif not paper.get("file"):
+            if used + WEBFETCH_TOKENS <= profile.read_budget:
+                entry.update(mode="webfetch", cost=WEBFETCH_TOKENS, reason="Kein Volltext – gezielte Webabrufe")
+            else:
+                entry.update(mode="skipped", cost=0, reason="Lesebudget erschöpft")
+        elif count == 0 or used + tokens <= profile.read_budget:
+            entry.update(mode="full", cost=tokens,
+                         reason="Kernpaper – komplett gelesen" if count == 0 else "Passt ins Budget – komplett gelesen")
+        elif used + selective_tokens(tokens) <= profile.read_budget:
+            entry.update(mode="selective", cost=selective_tokens(tokens),
+                         reason="Zu lang fürs restliche Budget – nur Kernabschnitte")
+        else:
+            entry.update(mode="skipped", cost=0, reason="Lesebudget erschöpft")
+        if entry["mode"] != "skipped":
+            used += entry["cost"]
+            count += 1
+        plan.append(entry)
+    return plan
+
+
+def measure(ctx, papers: list[dict]) -> list[dict]:
+    for paper in papers:
+        path = ctx.path(paper["file"]) if paper.get("file") else None
+        paper["tokens"] = len(path.read_text(encoding="utf-8")) // CHARS_PER_TOKEN if path and path.exists() else 0
+    return papers
+
+
+# --- 6. Readers ------------------------------------------------------------------------
+
+
+def notes_path(ctx, paper_id: str):
+    return ctx.path(f"papers/{file_key(paper_id)}.notes.json")
+
+
+async def _read_one(ctx, entry: dict, cand: RankedCandidate, plan: ResearchPlan | None, focus: str,
+                    skills: list[str], semaphore: asyncio.Semaphore) -> PaperNotes | None:
+    path = notes_path(ctx, entry["id"])
+    if path.exists():
+        return PaperNotes.model_validate(_read_json(path))
+    async with semaphore:
+        prompt = render_stage("reader", plan=plan, focus=focus, entry=entry, cand=cand, **_common(ctx))
+        model = ctx.settings.research_reader_model
+        try:
+            result = await ctx.claude.run(ClaudeCall(
+                prompt=prompt, cwd=ctx.job_dir, tools=READER_TOOLS, skills=skills,
+                system_append=ctx.blocks["system"], output_schema=json_schema(PaperNotes),
+                max_turns=READER_TURNS, model=model,
+            ))
+            notes = PaperNotes.model_validate(result.structured)
+        except Exception as exc:  # one failed reader must not stop the research
+            ctx.log.write("reader_failed", stage=NAME, paper=entry["id"], error=f"{type(exc).__name__}: {exc}")
+            return None
+    _log_claude(ctx, f"reader:{cand.title[:40]}", model, result, relevance=notes.relevance, mode=entry["mode"])
+    _write_json(path, notes.model_dump())
+    return notes
+
+
+async def run_readers(ctx, reading, by_id, plan, focus, skills) -> dict[str, PaperNotes]:
+    todo = [e for e in reading if e["mode"] != "skipped"]
+    full = sum(1 for e in todo if e["mode"] == "full")
+    tokens = sum(e["cost"] for e in todo)
+    size = f"{tokens / 1000:.0f}k" if tokens >= 1000 else str(tokens)
+    await ctx.notify(NAME, f"{len(todo)} Leser lesen parallel je ein Paper ({full} komplett, ~{size} Tokens)")
+    semaphore = asyncio.Semaphore(READER_CONCURRENCY)
+    results = await asyncio.gather(*(
+        _read_one(ctx, e, by_id[e["id"]], plan, focus, skills, semaphore) for e in todo
+    ))
+    return {e["id"]: n for e, n in zip(todo, results) if n is not None}
+
+
+# --- 7. Synthesis ------------------------------------------------------------------------
+
+
+async def synthesize(ctx, candidates, selection, plan, reading, notes, profile, skills) -> ResearchResult:
+    await ctx.notify(NAME, f"Claude führt die Notizen aus {len(notes)} Paper(n) zusammen und prüft sie")
     by_id = {c.id: c for c in candidates}
-    selected_ids = {p.id for p in selection.selected}
+    read = [e for e in reading if e["mode"] != "skipped"]
+    read.sort(key=lambda e: -(notes[e["id"]].relevance if e["id"] in notes else -1))
+    read_ids = {e["id"] for e in read}
     prompt = render_stage(
-        "read",
-        blocks=ctx.blocks,
-        topic=ctx.request.topic,
-        extra_instructions=ctx.request.options.extra_instructions,
-        focus=selection.focus,
-        clarifications=clarify.answers_text(ctx.job_dir),
-        selected=[(p, by_id[p.id], next(x for x in papers if x["id"] == p.id), i < profile.full_reads)
-                  for i, p in enumerate(selection.selected)],
-        others=[c for c in candidates if c.id not in selected_ids],
-        language_name=ctx.request.options.language.english_name,
+        "read", blocks=ctx.blocks, plan=plan, focus=selection.focus,
+        papers=[(e, by_id[e["id"]], notes.get(e["id"])) for e in read],
+        others=[c for c in candidates if c.id not in read_ids][:15],
+        searches=LEAD_SEARCHES, language_name=ctx.request.options.language.english_name, **_common(ctx),
     )
     model = ctx.settings.research_main_model
-    result = await ctx.claude.run(
-        ClaudeCall(
-            prompt=prompt,
-            cwd=ctx.job_dir,
-            tools=READ_TOOLS,
-            skills=skills,
-            system_append=ctx.blocks["system"],
-            output_schema=json_schema(ResearchResult),
-            max_turns=profile.main_turns,
-            model=model,
-        )
-    )
+    result = await ctx.claude.run(ClaudeCall(
+        prompt=prompt, cwd=ctx.job_dir, tools=LEAD_TOOLS, skills=skills, system_append=ctx.blocks["system"],
+        output_schema=json_schema(ResearchResult), max_turns=profile.lead_turns, model=model,
+    ))
     research = ResearchResult.model_validate(result.structured)
-    _log_claude(ctx, "read", model, result, sources=len(research.sources))
+    _log_claude(ctx, "synthesis", model, result, sources=len(research.sources))
     return research
 
 
@@ -325,23 +437,27 @@ async def run(ctx) -> None:
     ctx.skills.install(ctx.job_dir, skills)
     await clarify.run(ctx, NAME)  # may pause the job until the listener answers
 
+    plan = load_plan(ctx)
     if ctx.path("candidates.json").exists():
         candidates = [RankedCandidate(**c) for c in _read_json(ctx.path("candidates.json"))]
     else:
-        candidates = await run_scouts(ctx, profile, skills)
+        if plan is None:
+            plan = await make_plan(ctx, profile)
+            _write_json(ctx.path("plan.json"), plan.model_dump())
+        candidates = await run_scouts(ctx, plan, profile, skills)
         _write_json(ctx.path("candidates.json"), [c.model_dump() for c in candidates])
 
     if ctx.path("selection.json").exists():
         selection = Selection.model_validate(_read_json(ctx.path("selection.json")))
     else:
-        selection = await select_papers(ctx, candidates, profile)
+        selection = await select_papers(ctx, candidates, plan, profile)
         _write_json(ctx.path("selection.json"), selection.model_dump())
 
+    by_id = {c.id: c for c in candidates}
     if ctx.path("papers/index.json").exists():
         papers = _read_json(ctx.path("papers/index.json"))
     else:
-        await ctx.notify(NAME, f"{len(selection.selected)} Paper werden heruntergeladen")
-        by_id = {c.id: c for c in candidates}
+        await ctx.notify(NAME, f"{len(selection.selected)} Paper werden heruntergeladen und vermessen")
         files = await download_all(
             [by_id[p.id] for p in selection.selected],
             ctx.path("papers"),
@@ -357,7 +473,17 @@ async def run(ctx) -> None:
         )
         _write_json(ctx.path("papers/index.json"), papers)
 
-    research = await read_and_write_notes(ctx, candidates, selection, papers, profile, skills)
+    if ctx.path("reading.json").exists():
+        reading = _read_json(ctx.path("reading.json"))
+    else:
+        reading = plan_reading(measure(ctx, papers), profile)
+        _write_json(ctx.path("reading.json"), reading)
+        chosen = [e for e in reading if e["mode"] != "skipped"]
+        ctx.log.write("reading", stage=NAME, budget=profile.read_budget, used=sum(e["cost"] for e in chosen),
+                      papers=[{k: e[k] for k in ("title", "tokens", "mode", "reason")} for e in reading])
+
+    notes = await run_readers(ctx, reading, by_id, plan, selection.focus, skills)
+    research = await synthesize(ctx, candidates, selection, plan, reading, notes, profile, skills)
     await ctx.set_title(research.title_suggestion)
     ctx.path("research.md").write_text(
         f"# {research.title_suggestion}\n\n{research.notes.strip()}\n\n"

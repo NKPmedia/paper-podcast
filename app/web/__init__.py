@@ -32,8 +32,9 @@ from app.db import JobStore
 from app.jobs import ContextFactory, JobError, JobService, Worker
 from app.episode_log import call_tokens, fmt_tokens, read_log, timeline, token_totals
 from app.models import EpisodeOptions, EpisodeRequest, Language, Length, ResearchDepth
+from app.papers import file_key
 from app.pipeline import clarify
-from app.pipeline.research import depth_hint
+from app.pipeline.research import PROFILES, depth_hint
 from app.pipeline import STAGE_ARTIFACTS, prompt_context, slugify, stages_for
 from app.prompts import BLOCK_DESCRIPTIONS, PromptStore
 from app.skills import STAGES as SKILL_STAGES
@@ -71,6 +72,15 @@ ANGLE_LABELS = {
 }
 
 _markdown = MarkdownIt("commonmark", {"html": False}).enable("table")
+
+
+def _reading_rows(job_dir: Path) -> list[dict]:
+    """reading.json plus each reader's relevance score, for the research details."""
+    rows = _read_json(job_dir / "reading.json", [])
+    for row in rows:
+        notes = _read_json(job_dir / "papers" / f"{file_key(row['id'])}.notes.json")
+        row["relevance"] = notes.get("relevance") if notes else None
+    return rows
 
 
 class NeedsLogin(Exception):
@@ -525,6 +535,11 @@ def create_app(
             timeline=timeline(log_entries, tz),
             languages=LANGUAGE_LABELS,
             clarification=clarify.load(job_dir),
+            plan=(plan := _read_json(job_dir / "plan.json")),
+            task_labels={f"t{i + 1}": t["title"] for i, t in enumerate((plan or {}).get("tasks", []))},
+            reading=_reading_rows(job_dir),
+            reading_budget_k=PROFILES[ResearchDepth(request_data.get("request", {}).get("options", {})
+                                                    .get("research_depth", "medium"))].read_budget // 1000,
             names={"host": settings.host_name, "expert": settings.expert_name},
             stage_names=job_stages,
         )

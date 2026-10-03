@@ -94,7 +94,7 @@
       <thead><tr><th>Schritt</th><th>Modell</th><th>Runden</th><th>Eingabe</th><th>Ausgabe</th><th>Cache</th><th>Gesamt</th><th>Kosten</th></tr></thead>
       <tbody>
       {% for c in claude_calls %}
-      <tr><td>{{ stage_labels.get(c.stage, c.stage) }}{% if c.step %} · {{ c.step.replace("scout:", "Scout ") }}{% endif %}{% if c.attempt and c.attempt > 1 %} · Versuch {{ c.attempt }}{% endif %}</td>
+      <tr><td>{{ stage_labels.get(c.stage, c.stage) }}{% if c.step %} · {{ c.step.replace("scout:", "Scout ").replace("reader:", "Leser ") }}{% endif %}{% if c.attempt and c.attempt > 1 %} · Versuch {{ c.attempt }}{% endif %}</td>
         <td>{{ c.model or "" }}</td><td>{{ c.turns }}</td><td>{{ c.token_row.input | tokens }}</td><td>{{ c.token_row.output | tokens }}</td>
         <td>{{ (c.token_row.cache_read + c.token_row.cache_write) | tokens }}</td><td>{{ c.token_row.total | tokens }}</td><td>{{ c.cost_usd | money }}</td></tr>
       {% endfor %}
@@ -164,10 +164,34 @@
 {% if candidates %}
 <details class="card">
   <summary><h2>So wurde recherchiert</h2></summary>
-  {% if selection %}<p><strong>Fokus:</strong> {{ selection.focus }}</p>{% endif %}
+  {% if plan %}
+  <h3>Plan</h3>
+  <p><strong>Fokus:</strong> {{ plan.focus }}</p>
+  <p><strong>Leitfragen</strong></p>
+  <ol>{% for q in plan.key_questions %}<li>{{ q }}</li>{% endfor %}</ol>
+  <p><strong>Scouts</strong></p>
+  <ul>{% for t in plan.tasks %}<li><b>{{ t.title }}</b>: {{ t.objective }}</li>{% endfor %}</ul>
+  {% elif selection %}<p><strong>Fokus:</strong> {{ selection.focus }}</p>{% endif %}
+  {% if reading %}
+  {% set used = reading | sum(attribute="cost") %}
+  <h3>Lesen nach Länge</h3>
+  <p class="hint">Die ausgewählten Paper wurden heruntergeladen und vermessen. Danach wurde entschieden, wie viele gelesen werden und welche komplett: {{ (used / 1000) | round | int }}k von {{ reading_budget_k }}k Tokens Lesebudget genutzt. Jedes Paper liest ein eigener Leser.</p>
+  <table class="calls">
+    <thead><tr><th>Paper</th><th>Länge</th><th>Gelesen</th><th>Relevanz</th></tr></thead>
+    <tbody>
+    {% for r in reading %}
+    <tr><td>{{ r.title or r.id }}<br><span class="hint">{{ r.reason }}</span></td>
+      <td>{% if r.tokens %}{{ (r.tokens / 1000) | round(1) }}k{% else %}–{% endif %}</td>
+      <td>{{ {"full": "komplett", "selective": "Kernabschnitte", "webfetch": "per Webabruf", "skipped": "nicht gelesen"}[r.mode] }}</td>
+      <td>{% if r.relevance is not none %}{{ r.relevance | round | int }}/10{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <h3>Gefundene Quellen</h3>
+  {% endif %}
   {% set selected = selection.selected | map(attribute="id") | list if selection else [] %}
   {% set paper_by_id = {} %}{% for p in papers %}{% set _ = paper_by_id.update({p.id: p}) %}{% endfor %}
-  <p class="hint">Scouts haben {{ candidates | length }} Quellen gefunden und bewertet (0–10); {{ selected | length }} davon wurden im Volltext gelesen.</p>
+  <p class="hint">Scouts haben {{ candidates | length }} Quellen gefunden und bewertet (0–10); {{ selected | length }} davon wurden für die Lektüre ausgewählt.</p>
   <table class="candidates">
     <thead><tr><th>Bewertung</th><th>Quelle</th><th>Gefunden bei</th></tr></thead>
     <tbody>
@@ -177,7 +201,7 @@
       <td>{% if c.id in selected %}<span class="badge done">gelesen</span> {% endif %}{% if c.url | safe_url %}<a href="{{ c.url | safe_url }}" rel="noopener noreferrer" target="_blank">{{ c.title }}</a>{% else %}{{ c.title }}{% endif %}
         <br><span class="muted">{{ c.reason }}</span>
         {% if c.id in paper_by_id %}<br><span class="hint">{% if paper_by_id[c.id].file %}Volltext geladen ({{ paper_by_id[c.id].format | upper }}){% else %}Volltext nicht verfügbar – per Webabruf gelesen{% endif %}</span>{% endif %}</td>
-      <td>{% for a in c.found_by %}{{ angle_labels.get(a, a) }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
+      <td>{% for a in c.found_by %}{{ task_labels.get(a) or angle_labels.get(a, a) }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
     </tr>
     {% endfor %}
     </tbody>

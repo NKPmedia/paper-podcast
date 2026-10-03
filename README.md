@@ -83,7 +83,7 @@ finished audio as `episode.mp3`.
 | Page | What you can do |
 |---|---|
 | Episodes | Start an episode: topic, length, research depth, language (German or English), extra wishes, and optional additions to prompt blocks or extra skills for this episode only. See the list with live status. |
-| Episode | See live progress per stage. Play the episode with a chapter list and download the MP3. Read the script, research notes and sources. See the **Claude usage** (total tokens: input, output, cache reads and writes, plus the API-equivalent cost, and every call with model, turns and tokens) and the **process log** ("Ablauf": every stage, Claude call, download, retry and error with timestamps). See the research details: candidates, selection and which full texts were downloaded. Cancel, resume after an error, re-generate from a stage, or delete. |
+| Episode | See live progress per stage, the research plan and how each paper was read. Play the episode with a chapter list and download the MP3. Read the script, research notes and sources. See the **Claude usage** (total tokens: input, output, cache reads and writes, plus the API-equivalent cost, and every call with model, turns and tokens) and the **process log** ("Ablauf": every stage, Claude call, download, retry and error with timestamps). See the research details: candidates, selection and which full texts were downloaded. Cancel, resume after an error, re-generate from a stage, or delete. |
 | Prompts | Edit the prompt blocks with preview and syntax check, and reset them to the default. |
 | Skills | Choose which skills each stage uses. View the bundled skills; editing one creates your own copy, which you can reset later. Create new skills or import a `.zip`. |
 
@@ -174,7 +174,7 @@ docker compose exec app python -m app.cli skills    # list skills
 
 | Stage | What happens | Output |
 |---|---|---|
-| research | 0. **Clarifying questions** (see below). 1. Scouts (Haiku, in parallel by angle) search and rank candidates. 2. The main model (Opus) selects papers. 3. Our code downloads the full texts (arXiv HTML → PDF → open-access PDF). 4. Opus reads the papers (the most important ones completely, the rest selectively) and writes notes in English | `scouts/`, `candidates.json`, `selection.json`, `papers/`, `research.md`, `sources.json` |
+| research | 0. **Clarifying questions** (see below). 1. **Plan:** Opus writes a research brief (focus, key questions) and one task per scout. 2. **Scouts** (Haiku, in parallel) search and rank candidates. 3. **Selection:** Opus ranks the sources to read. 4. Our code **downloads and measures** the full texts (arXiv HTML → PDF → open-access PDF). 5. A **reading budget** decides from the measured lengths how many papers are read, and which completely. 6. **Readers** (Sonnet, in parallel, one paper each in a fresh context) extract evidence for the key questions with line references and a relevance score. 7. **Synthesis:** Opus cross-checks the reader notes, verifies central numbers in the full texts, fills gaps with a few searches and writes the notes in English | `clarify.json`, `plan.json`, `scouts/`, `candidates.json`, `selection.json`, `papers/` (incl. `*.notes.json`), `reading.json`, `research.md`, `sources.json` |
 | script | Claude writes the dialogue from the notes and looks up details in `papers/` when needed; the result is checked (length, speakers, no formulas) and retried with feedback | `script.json` |
 | handout (optional) | Claude writes the handout body in **LaTeX**, with properly typeset formulas, tables and a glossary, plus matplotlib code for 1–3 figures. Our code renders the figures as vector PDFs in a sandbox and compiles the document with **pdflatex** under a fixed preamble. If compilation fails, Claude gets the error log and up to two repair rounds. Everything the script points to ("steht im Handout") is included | `handout/` (incl. `handout.tex`), `handout.pdf` |
 | tts | **Gemini** multi-speaker TTS (one request per chapter, both voices in one natural take) when `GEMINI_API_KEY` is set. When its free quota runs out, it switches to **Edge TTS** for the whole episode, so voices are never mixed. Without a key it uses Edge TTS: one clip per line, free, no key. Finished clips are reused on resume. | `clips/` |
@@ -196,23 +196,46 @@ are shown on the episode page. A clear topic gets no questions. Switch this off 
 episode with "Rückfragen erlauben" (web), the ❓ button (Telegram) or
 `--no-questions` (CLI). Everything is stored in `clarify.json`.
 
-Research depth sets the number of scouts and papers (`PROFILES` in `app/pipeline/research.py`):
+Research depth sets the effort (`PROFILES` in `app/pipeline/research.py`):
 
-| Depth | Scouts | Angles | Searches per scout | Candidates per scout | Papers downloaded | Read completely |
-|---|---|---|---|---|---|---|
-| `quick` | 1 | overview | 5 | 8–12 | 2 | 2 |
-| `medium` | 3 | background, core results, critique | 5 | 8–12 | 4 | 2 |
-| `deep` | 5 | the above plus citation network and recent work | 7 | 10–14 | 6 | 3 |
+| Depth | Scouts (the plan picks) | Searches per scout | Sources ranked | Papers read at most | Reading budget |
+|---|---|---|---|---|---|
+| `quick` | 1–2 | 5 | 4 | 3 | ~60k tokens |
+| `medium` | 2–4 | 5 | 7 | 5 | ~140k tokens |
+| `deep` | 3–6 | 7 | 10 | 8 | ~260k tokens |
 
-Why these numbers: each full text is capped at 150,000 characters (about 35,000
-tokens), which covers the main body of almost every paper. The papers read
-completely plus the selectively read ones (abstract, introduction, method overview,
-results, conclusion) then still fit into one context window together with the prompt
-and the notes. Reading more papers in full would overflow the context and make Claude
-compact away what it read first. The merged shortlist is capped at 30 candidates.
-The reader first greps each paper's headings for an outline, then reads in chunks.
+**How many papers are read depends on their length.** After the download, every paper
+is measured (about 4 characters per token; a typical paper is 8k–15k tokens, long ones
+are capped at 35k by `paper_max_chars`). In the order the selection ranked them:
+- the first paper (the core paper) is always read completely;
+- the next ones are read completely while the budget lasts;
+- a paper too long for the rest of the budget is read selectively (abstract,
+  introduction, method, results, conclusion; about a fifth plus 8k tokens);
+- a source without full text costs about 4k tokens (targeted WebFetch questions);
+- everything after that, or beyond the paper limit, is not read.
 
-If a download fails, the main model falls back to `WebFetch` for that paper.
+So a topic with short papers gets more of them; one with long papers gets fewer.
+The episode page shows the length, reading mode and the reader's relevance score of
+every paper under "So wurde recherchiert", together with the plan.
+
+**Why this design.** It follows how established deep-research systems work:
+- Anthropic's [multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system):
+  - a lead agent plans first and gives each subagent a self-contained task (objective,
+    where to start, what is out of scope);
+  - effort scales with how complex the topic is;
+  - searches start broad and then narrow;
+  - subagents write their results to files and pass back only short references.
+- OpenAI and Gemini deep research: clarifying questions, then a written research plan.
+- [STORM](https://arxiv.org/abs/2402.14207): research from several distinct perspectives,
+  here one per scout.
+- [PaperQA2](https://github.com/Future-House/paper-qa): every source is summarized
+  against the question and scored for relevance before the final answer
+  ("RCS": reranking and contextual summarization), plus citation traversal (a scout
+  perspective for deep research).
+
+Each reader has its own context, so the reading budget limits time and Claude quota,
+not context size. The synthesis only reads the compact reader notes and opens full
+texts for spot checks.
 
 `research.md` is the handover to the script step:
 - Every claim is cited with a pointer into the full text, e.g.

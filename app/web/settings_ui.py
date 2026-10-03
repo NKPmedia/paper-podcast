@@ -54,7 +54,10 @@ SECTIONS: tuple[Section, ...] = (
               help="Auf deinem eigenen Rechner einmal <code>claude setup-token</code> ausführen (Pro- oder "
                    "Max-Abo) und den Token hier einfügen. Er ist ein Jahr gültig."),
         Field("research_scout_model", "Modell der Recherche-Scouts", help="Sucht und bewertet Quellen. " + MODELS),
-        Field("research_main_model", "Modell für Auswahl und Lesen", help="Liest die Paper im Volltext. " + MODELS),
+        Field("research_main_model", "Modell für Planung, Auswahl und Synthese",
+              help="Plant die Recherche, wählt die Paper und führt die Notizen der Leser zusammen. " + MODELS),
+        Field("research_reader_model", "Modell der Leser",
+              help="Liest je ein Paper im Volltext, parallel, und schreibt belegte Notizen. " + MODELS),
         Field("script_model", "Modell für Skript und Handout", help=MODELS),
         Field("claude_max_turns_script", "Max. Runden pro Skript-Aufruf", "int", min=5, max=200),
     )),
