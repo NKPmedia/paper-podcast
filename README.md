@@ -7,7 +7,30 @@ between a curious host and an expert, and a free online TTS speaks it.
 See [PLAN.md](PLAN.md) for the full design. The core pipeline, the handout, the
 password-protected web UI, the Telegram bot and the podcast feed are implemented.
 
-## Quick start (Docker)
+## Prebuilt image (GitHub Actions)
+
+On every push, GitHub Actions runs the tests and, if they pass, builds the Docker image
+and pushes it to the GitHub Container Registry
+(`.github/workflows/docker.yml`):
+
+| Tag | When |
+|---|---|
+| `ghcr.io/nkpmedia/paper-podcast:latest` | Default branch |
+| `:<branch>` | Every other branch |
+| `:sha-<commit>` | Every build |
+| `:1.2.3` / `:1.2` | Git tags like `v1.2.3` |
+
+Pull requests are built but not pushed.
+
+To run the prebuilt image, use [`docker-compose.example.yml`](docker-compose.example.yml):
+copy it to `docker-compose.yml`, fill in `.env`, then run `docker compose up -d`.
+Update with `docker compose pull && docker compose up -d`.
+
+If the package is private, log in on the server once with a token that has
+`read:packages`. Alternatively, make the package public under GitHub → Packages →
+paper-podcast → Package settings.
+
+## Quick start (Docker, build locally)
 
 ```bash
 cp .env.example .env

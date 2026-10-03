@@ -1,0 +1,62 @@
+# Example for running the prebuilt image from GitHub Container Registry.
+#
+#   1. Copy this file to docker-compose.yml and .env.example to .env, then fill in .env
+#      (CLAUDE_CODE_OAUTH_TOKEN, WEB_PASSWORD_HASH, optionally Telegram and Gemini).
+#   2. mkdir -p data && sudo chown 1000:1000 data
+#   3. Password hash:   docker compose run --rm paper-podcast python -m app.cli hash-password
+#   4. Start:           docker compose up -d
+#   5. Update later:    docker compose pull && docker compose up -d
+#
+# If the package on GitHub is private, log in once on the server:
+#   echo <token with read:packages> | docker login ghcr.io -u <github-user> --password-stdin
+
+services:
+  paper-podcast:
+    image: ghcr.io/nkpmedia/paper-podcast:latest
+    container_name: paper-podcast
+    env_file: .env
+    environment:
+      # Links in Telegram messages and the podcast feed point here.
+      PUBLIC_BASE_URL: https://podcast.example.org
+    volumes:
+      # Episodes, database, prompt and skill overrides, uploads, Claude session data.
+      - ./data:/data
+    ports:
+      # Only reachable from the host; put your reverse proxy (HTTPS) in front.
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+    # The image has its own health check (GET /healthz).
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # --- Optional: reverse proxy with automatic HTTPS (Caddy) ---------------------
+  # Use this if you do not already run a proxy. Then remove the "ports" entry
+  # above, set your domain below and open ports 80/443 on the server.
+  #
+  # caddy:
+  #   image: caddy:2
+  #   restart: unless-stopped
+  #   ports: ["80:80", "443:443"]
+  #   command: caddy reverse-proxy --from podcast.example.org --to paper-podcast:8000
+  #   volumes:
+  #     - caddy-data:/data
+
+  # --- Optional: self-hosted Telegram Bot API (audio files > 50 MB) --------------
+  # Set TELEGRAM_API_BASE_URL=http://telegram-bot-api:8081 in .env when you use it.
+  # Needs API ID and hash from https://my.telegram.org.
+  #
+  # telegram-bot-api:
+  #   image: aiogram/telegram-bot-api:latest
+  #   restart: unless-stopped
+  #   environment:
+  #     TELEGRAM_API_ID: "12345"
+  #     TELEGRAM_API_HASH: "abcdef..."
+  #   volumes:
+  #     - telegram-bot-api:/var/lib/telegram-bot-api
+
+# volumes:
+#   caddy-data:
+#   telegram-bot-api:
