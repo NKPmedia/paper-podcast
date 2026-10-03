@@ -547,6 +547,7 @@ class TelegramRunner:
         self.max_audio_bytes = MAX_AUDIO_BYTES if not settings.telegram_api_base_url else 1900 * 1024 * 1024
         self.core = TelegramBot(settings, service, worker, PTBMessenger(self.application.bot))
         self.core.max_audio_bytes = self.max_audio_bytes
+        self.worker = worker
         worker.listeners.append(self.core)
 
         async def on_command(update, context):
@@ -581,8 +582,11 @@ class TelegramRunner:
         log.info("Telegram bot @%s started", self.application.bot.username)
 
     async def stop(self) -> None:
+        if self.core in self.worker.listeners:
+            self.worker.listeners.remove(self.core)
         if self.application.updater and self.application.updater.running:
             await self.application.updater.stop()
         if self.application.running:
             await self.application.stop()
-        await self.application.shutdown()
+        if self.application._initialized:
+            await self.application.shutdown()

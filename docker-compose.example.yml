@@ -1,11 +1,12 @@
 # Example for running the prebuilt image from GitHub Container Registry.
 #
-#   1. Copy this file to docker-compose.yml and .env.example to .env, then fill in .env
-#      (CLAUDE_CODE_OAUTH_TOKEN, WEB_PASSWORD_HASH, optionally Telegram and Gemini).
+#   1. Copy this file to docker-compose.yml; create an empty .env (or copy .env.example).
 #   2. mkdir -p data && sudo chown 1000:1000 data
-#   3. Password hash:   docker compose run --rm paper-podcast python -m app.cli hash-password
-#   4. Start:           docker compose up -d
-#   5. Update later:    docker compose pull && docker compose up -d
+#   3. Start:           docker compose up -d
+#   4. Setup code:      docker compose logs paper-podcast | grep -A1 Ersteinrichtung
+#   5. Open the web UI; the setup dialog asks for password, Claude token, names,
+#      and optionally Telegram and Gemini.
+#   6. Update later:    docker compose pull && docker compose up -d
 #
 # If the package on GitHub is private, log in once on the server:
 #   echo <token with read:packages> | docker login ghcr.io -u <github-user> --password-stdin
@@ -15,9 +16,6 @@ services:
     image: ghcr.io/nkpmedia/paper-podcast:latest
     container_name: paper-podcast
     env_file: .env
-    environment:
-      # Links in Telegram messages and the podcast feed point here.
-      PUBLIC_BASE_URL: https://podcast.example.org
     volumes:
       # Episodes, database, prompt and skill overrides, uploads, Claude session data.
       - ./data:/data

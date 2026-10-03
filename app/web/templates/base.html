@@ -3,20 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}{{ podcast_name }}{% endblock %}</title>
+  <title>{% block title %}{{ settings.podcast_name }}{% endblock %}</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>">
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/app.js" defer></script>
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/">🎙️ {{ podcast_name }}</a>
+    <a class="brand" href="/">🎙️ {{ settings.podcast_name }}</a>
     {% if request.session.get("user") %}
     <nav>
       <a href="/" {% if request.url.path == "/" or request.url.path.startswith("/episodes") %}class="active"{% endif %}>Episoden</a>
       <a href="/prompts" {% if request.url.path.startswith("/prompts") %}class="active"{% endif %}>Prompts</a>
       <a href="/skills" {% if request.url.path.startswith("/skills") %}class="active"{% endif %}>Skills</a>
       <a href="/connections" {% if request.url.path.startswith("/connections") %}class="active"{% endif %}>Verbindungen</a>
+      <a href="/settings" {% if request.url.path.startswith("/settings") %}class="active"{% endif %}>Einstellungen</a>
       <form method="post" action="/logout" class="inline">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <button class="link">Abmelden</button>

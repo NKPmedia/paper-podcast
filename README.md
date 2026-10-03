@@ -33,26 +33,40 @@ paper-podcast → Package settings.
 ## Quick start (Docker, build locally)
 
 ```bash
-cp .env.example .env
 mkdir -p data && sudo chown 1000:1000 data   # the container runs as uid 1000
+touch .env                                    # optional: settings from .env.example
 docker compose build
-
-# 1. Claude: on your own machine run `claude setup-token`, then add to .env:
-#      CLAUDE_CODE_OAUTH_TOKEN=...
-# 2. Web password: prints a WEB_PASSWORD_HASH=... line for .env
-docker compose run --rm app python -m app.cli hash-password
-
 docker compose up -d
+docker compose logs app | grep -A1 Ersteinrichtung   # shows the one-time setup code
 ```
 
+Open the web UI. On the first visit a short **setup dialog** asks for:
+
+| Field | |
+|---|---|
+| Setup code | Printed in the server log, so nobody else who reaches your fresh server can claim it |
+| Password | For the web UI |
+| Claude token | Run `claude setup-token` once on your own machine |
+| Podcast name, host and expert names | |
+| Public address (optional) | For links |
+| Telegram bot token and chat IDs (optional) | |
+| Gemini API key (optional) | |
+| Allow plain-HTTP login | Only offered over HTTP; for testing without a proxy |
+
+**Where settings are stored:**
+- Everything entered in the dialog is saved in `data/settings.json` (readable only by
+  the owner).
+- It can be changed later under **Einstellungen**.
+- Values set in `.env` take precedence; the UI shows them as locked.
+- A Telegram token change restarts the bot immediately.
+
+**Networking:**
 - The web UI listens on `127.0.0.1:8000`. Point your reverse proxy (HTTPS) at it.
 - If the proxy runs on another machine or in another Docker network, change the
-  `ports:` entry in `docker-compose.yml`.
-- The session cookie is `Secure`, so login only works over HTTPS. For a quick
-  plain-http test on your LAN, set `COOKIE_SECURE=false`.
+  `ports:` entry.
 
-Episodes are stored in `data/episodes/<datum>-<thema>/`, with the finished audio
-as `episode.mp3`.
+**Where episodes go:** `data/episodes/<datum>-<thema>/`, with the finished audio as
+`episode.mp3`.
 
 ## Web UI
 

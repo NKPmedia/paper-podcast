@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Einstellungen · {{ settings.podcast_name }}{% endblock %}
+{% block content %}
+<form method="post" action="/settings" class="card setup">
+  <h1>Einstellungen</h1>
+  {% if errors %}<div class="flash error" role="alert">Bitte prüfe die markierten Felder.</div>{% endif %}
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+
+  {% include "_settings_fields.html" %}
+
+  {% if settings.telegram_bot_token %}
+  <p class="hint">Telegram-Bot: {% if telegram.runner %}✓ läuft{% elif telegram.error %}✗ startet nicht – {{ telegram.error }}{% else %}nicht gestartet{% endif %}</p>
+  {% endif %}
+
+  {% if not locked.web_password_hash %}
+  <fieldset>
+    <legend>Passwort ändern <span class="hint">optional</span></legend>
+    <label>Aktuelles Passwort <input type="password" name="current_password" autocomplete="current-password">
+      {% if errors.get('current_password') %}<span class="field-error">{{ errors.current_password }}</span>{% endif %}</label>
+    <div class="row">
+      <label>Neues Passwort <input type="password" name="password" minlength="10" autocomplete="new-password">
+        {% if errors.get('password') %}<span class="field-error">{{ errors.password }}</span>{% endif %}</label>
+      <label>Wiederholen <input type="password" name="password2" minlength="10" autocomplete="new-password">
+        {% if errors.get('password2') %}<span class="field-error">{{ errors.password2 }}</span>{% endif %}</label>
+    </div>
+  </fieldset>
+  {% endif %}
+
+  <button class="primary">Speichern</button>
+  <p class="hint">Klang, Cover und Podcast-Feed findest du unter <a href="/connections">Verbindungen</a>, die Prompts unter <a href="/prompts">Prompts</a>.</p>
+</form>
+{% endblock %}

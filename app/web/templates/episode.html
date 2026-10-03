@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ job.display_title }} · {{ podcast_name }}{% endblock %}
+{% block title %}{{ job.display_title }} · {{ settings.podcast_name }}{% endblock %}
 {% block content %}
 <section class="card" data-episode-status="/episodes/{{ job.id }}/status.json" data-status="{{ job.status }}">
   <p class="muted"><a href="/">← Alle Episoden</a></p>

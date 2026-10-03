@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Einrichtung · {{ settings.podcast_name }}{% endblock %}
+{% block content %}
+<form method="post" action="/setup" class="card setup">
+  <h1>Willkommen 👋</h1>
+  <p>Ein paar Angaben, dann kann es losgehen. Alles lässt sich später unter <i>Einstellungen</i> ändern.</p>
+  {% if errors %}<div class="flash error" role="alert">Bitte prüfe die markierten Felder.</div>{% endif %}
+
+  <fieldset>
+    <legend>Einrichtungscode</legend>
+    <label>Code aus dem Server-Log
+      <input name="code" required autocomplete="off" autofocus placeholder="z.B. 1A2B-3C4D-5E6F"
+             {% if errors.get('code') %}aria-invalid="true" aria-describedby="code-error"{% endif %}>
+      {% if errors.get('code') %}<span class="field-error" id="code-error">{{ errors.code }}</span>{% endif %}
+      <span class="hint">Damit niemand anderes deinen frischen Server übernimmt. Anzeigen mit <code>docker compose logs paper-podcast</code>.</span>
+    </label>
+  </fieldset>
+
+  {% if not locked.web_password_hash %}
+  <fieldset>
+    <legend>Passwort für diese Seite</legend>
+    <div class="row">
+      <label>Passwort <input type="password" name="password" required minlength="10" autocomplete="new-password"
+        {% if errors.get('password') %}aria-invalid="true" aria-describedby="password-error"{% endif %}>
+        {% if errors.get('password') %}<span class="field-error" id="password-error">{{ errors.password }}</span>{% endif %}</label>
+      <label>Wiederholen <input type="password" name="password2" required minlength="10" autocomplete="new-password"
+        {% if errors.get('password2') %}aria-invalid="true" aria-describedby="password2-error"{% endif %}>
+        {% if errors.get('password2') %}<span class="field-error" id="password2-error">{{ errors.password2 }}</span>{% endif %}</label>
+    </div>
+    <span class="hint">Mindestens 10 Zeichen.</span>
+  </fieldset>
+  {% endif %}
+
+  {% include "_settings_fields.html" %}
+
+  <button class="primary">Einrichtung abschließen</button>
+</form>
+{% endblock %}

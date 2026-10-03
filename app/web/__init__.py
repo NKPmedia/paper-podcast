@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import secrets
 from datetime import datetime
 from pathlib import Path
@@ -22,9 +23,9 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.assets import FILES as ASSET_FILES
 from app.assets import MAX_UPLOAD_BYTES, AssetError, save_cover, save_jingle
-from app.auth import LoginThrottle, load_or_create_secret, verify_password
+from app.auth import LoginThrottle, hash_password, load_or_create_secret, verify_password
 from app.claude import claude_auth_configured
-from app.config import Settings, get_settings
+from app.config import Settings, get_settings, locked, save_overrides
 from app.db import JobStore
 from app.jobs import ContextFactory, JobError, JobService, Worker
 from app.models import EpisodeOptions, EpisodeRequest, Length, ResearchDepth
@@ -68,6 +69,34 @@ class NeedsLogin(Exception):
     pass
 
 
+class SecureCookieMiddleware:
+    """Mark the session cookie ``Secure`` on HTTPS requests, and always if COOKIE_SECURE is on.
+
+    Decided per request, so allowing plain-HTTP logins in the settings works immediately.
+    """
+
+    def __init__(self, app, settings: Settings, cookie: str):
+        self.app = app
+        self.settings = settings
+        self.prefix = f"{cookie}=".encode()
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        async def send_wrapper(message):
+            # Decided when the response starts, so a setting changed by this very request applies.
+            secure = self.settings.cookie_secure or scope.get("scheme") == "https"
+            if secure and message["type"] == "http.response.start":
+                message["headers"] = [
+                    (k, v + b"; secure" if k == b"set-cookie" and v.startswith(self.prefix)
+                     and b"secure" not in v.lower() else v)
+                    for k, v in message["headers"]
+                ]
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
 class BadCsrf(Exception):
     pass
 
@@ -86,10 +115,6 @@ def create_app(
     start_worker: bool = True,
 ) -> FastAPI:
     settings = settings or get_settings()
-    if not settings.web_password_hash:
-        raise RuntimeError(
-            "WEB_PASSWORD_HASH ist nicht gesetzt. Erzeugen mit: python -m app.cli hash-password"
-        )
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     store = JobStore(settings.db_path)
     prompts = PromptStore(settings.prompts_dir)
@@ -101,38 +126,72 @@ def create_app(
 
     tz = ZoneInfo(settings.timezone)
 
+    # First run: no password yet. The setup page asks for a one-time code that is only
+    # printed to the server log, so nobody else who reaches the server first can claim it.
+    setup_code = "-".join(secrets.token_hex(2).upper() for _ in range(3))
+    if not settings.web_password_hash:
+        log.warning(
+            "\n%s\n  Ersteinrichtung: Öffne die Weboberfläche und gib diesen Code ein:  %s\n%s",
+            "=" * 72, setup_code, "=" * 72,
+        )
+
+    telegram_state: dict = {"runner": None, "error": ""}
+
+    async def restart_telegram() -> None:
+        """(Re)start the Telegram bot with the current settings; never breaks the web UI."""
+        from app.telegram_bot import TelegramRunner
+
+        old = telegram_state["runner"]
+        telegram_state.update(runner=None, error="")
+        if old:
+            with contextlib.suppress(Exception):
+                await old.stop()
+        if not (start_worker and settings.telegram_bot_token):
+            return
+        runner = TelegramRunner(settings, service, worker)
+        try:
+            await runner.start()
+            telegram_state["runner"] = runner
+        except Exception as exc:  # bad token, no network: keep the web UI running
+            log.exception("Telegram bot could not start")
+            telegram_state["error"] = f"{type(exc).__name__}: {exc}"
+            with contextlib.suppress(Exception):
+                await runner.stop()
+
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI):
-        telegram = None
-        if start_worker and settings.telegram_bot_token:
-            from app.telegram_bot import TelegramRunner
-
-            telegram = TelegramRunner(settings, service, worker)
-            try:
-                await telegram.start()
-            except Exception:  # bad token, no network: keep the web UI running
-                log.exception("Telegram bot could not start")
-                telegram = None
+        await restart_telegram()
         task = asyncio.create_task(worker.run_forever()) if start_worker else None
         yield
         if task:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-        if telegram:
-            await telegram.stop()
+        if telegram_state["runner"]:
+            await telegram_state["runner"].stop()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.service = service
     app.state.worker = worker
+    app.state.setup_code = setup_code
     app.add_middleware(
         SessionMiddleware,
         secret_key=load_or_create_secret(settings.session_secret, settings.data_dir / "session_secret"),
         session_cookie="paper_podcast",
         max_age=30 * 24 * 3600,
         same_site="lax",
-        https_only=settings.cookie_secure,
+        https_only=False,  # the Secure flag is set per request by SecureCookieMiddleware
     )
+    app.add_middleware(SecureCookieMiddleware, settings=settings, cookie="paper_podcast")
+
+    @app.middleware("http")
+    async def first_run(request: Request, call_next):
+        if not settings.web_password_hash and not (
+            request.url.path.startswith(("/setup", "/static", "/healthz"))
+        ):
+            return RedirectResponse("/setup", status_code=303)
+        return await call_next(request)
+
     app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
     register_feed(app, settings, service, feed_token)
     templates = Jinja2Templates(directory=WEB_DIR / "templates")
@@ -152,9 +211,7 @@ def create_app(
 
     templates.env.filters.update(time=fmt_time, duration=fmt_duration, markdown=_markdown.render, safe_url=_safe_url,
                                  money=fmt_money)
-    templates.env.globals.update(
-        status_labels=STATUS_LABELS, stage_labels=STAGE_LABELS, podcast_name=settings.podcast_name
-    )
+    templates.env.globals.update(status_labels=STATUS_LABELS, stage_labels=STAGE_LABELS, settings=settings)
 
     # --- helpers ------------------------------------------------------------------
 
@@ -200,6 +257,132 @@ def create_app(
         else:
             message = "Das Formular ist abgelaufen. Bitte die Seite neu laden und noch einmal absenden."
         return render(request, "error.html", 400, message=message)
+
+    # --- first-run setup and settings ------------------------------------------------
+
+    CHAT_IDS = re.compile(r"^\s*(-?\d+\s*(,\s*-?\d+\s*)*)?$")
+
+    def form_values(form) -> tuple[dict, dict]:
+        """Read the shared setup/settings fields. Returns (values to save, errors per field)."""
+        values, errors = {}, {}
+        for key in ("podcast_name", "host_name", "expert_name"):
+            text = str(form.get(key, "")).strip()
+            if key in form and not locked(settings, key):
+                if not text:
+                    errors[key] = "Bitte ausfüllen."
+                values[key] = text[:80]
+        url = str(form.get("public_base_url", "")).strip().rstrip("/")
+        if "public_base_url" in form:
+            if url and urlparse(url).scheme not in ("http", "https"):
+                errors["public_base_url"] = "Muss mit https:// (oder http://) beginnen."
+            values["public_base_url"] = url
+        chats = str(form.get("telegram_allowed_chat_ids", "")).strip()
+        if "telegram_allowed_chat_ids" in form:
+            if not CHAT_IDS.match(chats):
+                errors["telegram_allowed_chat_ids"] = "Nur Zahlen, getrennt durch Kommas."
+            values["telegram_allowed_chat_ids"] = chats.replace(" ", "")
+        for key in ("claude_code_oauth_token", "telegram_bot_token", "gemini_api_key"):
+            secret = str(form.get(key, "")).strip()
+            if secret:  # empty = keep the current value
+                values[key] = secret
+            if form.get(f"clear_{key}") == "on":
+                values[key] = ""
+        if values.get("telegram_bot_token") and not re.match(r"^\d+:[\w-]{20,}$", values["telegram_bot_token"]):
+            errors["telegram_bot_token"] = "Sieht nicht wie ein Bot-Token von @BotFather aus (Zahl:Zeichenkette)."
+        if "allow_http" in form or form.get("cookie_secure_field") == "1":
+            values["cookie_secure"] = form.get("allow_http") != "on"
+        return values, errors
+
+    def password_errors(form) -> dict:
+        password, again = str(form.get("password", "")), str(form.get("password2", ""))
+        if len(password) < 10:
+            return {"password": "Mindestens 10 Zeichen."}
+        if password != again:
+            return {"password2": "Die Passwörter stimmen nicht überein."}
+        return {}
+
+    def field_state() -> dict:
+        return {key: locked(settings, key) for key in (
+            "claude_code_oauth_token", "podcast_name", "host_name", "expert_name", "public_base_url",
+            "cookie_secure", "telegram_bot_token", "telegram_allowed_chat_ids", "gemini_api_key",
+            "web_password_hash")}
+
+    async def apply(values: dict, telegram_before: tuple) -> None:
+        save_overrides(settings, values)
+        if (settings.telegram_bot_token, settings.telegram_allowed_chat_ids) != telegram_before:
+            await restart_telegram()
+
+    @app.get("/setup")
+    async def setup_form(request: Request):
+        if settings.web_password_hash:
+            return redirect("/")
+        return render(request, "setup.html", mode="setup", locked=field_state(), errors={}, form={},
+                      claude_ok=claude_auth_configured(), http=request.url.scheme == "http")
+
+    @app.post("/setup")
+    async def setup_save(request: Request):
+        if settings.web_password_hash:
+            return redirect("/")
+        form = await request.form()
+        client = request.client.host if request.client else "unknown"
+        errors = {}
+        if throttle.blocked(client):
+            errors["code"] = "Zu viele Fehlversuche. Bitte in 15 Minuten erneut versuchen."
+        elif not secrets.compare_digest(str(form.get("code", "")).strip().upper().encode(), setup_code.encode()):
+            throttle.fail(client)
+            errors["code"] = "Falscher Code. Er steht im Server-Log (docker compose logs)."
+        errors |= password_errors(form)
+        values, value_errors = form_values(form)
+        errors |= value_errors
+        if not claude_auth_configured() and not values.get("claude_code_oauth_token"):
+            errors["claude_code_oauth_token"] = "Ohne Claude-Token können keine Episoden entstehen."
+        if errors:
+            safe_form = {k: v for k, v in form.items() if k not in (
+                "password", "password2", "code", "claude_code_oauth_token", "telegram_bot_token", "gemini_api_key")}
+            return render(request, "setup.html", 400, mode="setup", locked=field_state(), errors=errors, form=safe_form,
+                          claude_ok=claude_auth_configured(), http=request.url.scheme == "http")
+        throttle.reset(client)
+        values["web_password_hash"] = hash_password(str(form["password"]))
+        await apply(values, ("", ""))
+        log.info("Ersteinrichtung abgeschlossen")
+        request.session.clear()
+        request.session["user"] = "owner"
+        flash(request, "Fertig eingerichtet! Gib oben dein erstes Thema ein."
+              + (" Schreib deinem Telegram-Bot eine Nachricht – er antwortet mit deiner Chat-ID, "
+                 "die du unter Einstellungen einträgst." if settings.telegram_bot_token
+                 and not settings.telegram_allowed_chat_ids else ""))
+        return redirect("/")
+
+    @app.get("/settings")
+    async def settings_form(request: Request):
+        require_user(request)
+        return render(request, "settings.html", mode="settings", locked=field_state(), errors={}, form={},
+                      claude_ok=claude_auth_configured(), http=request.url.scheme == "http",
+                      telegram=telegram_state)
+
+    @app.post("/settings")
+    async def settings_save(request: Request):
+        require_user(request)
+        form = await request.form()
+        check_csrf(request, str(form.get("csrf", "")))
+        values, errors = form_values(form)
+        if form.get("password") and not locked(settings, "web_password_hash"):
+            if not verify_password(str(form.get("current_password", "")), settings.web_password_hash):
+                errors["current_password"] = "Das aktuelle Passwort ist falsch."
+            errors |= password_errors(form)
+            if not errors:
+                values["web_password_hash"] = hash_password(str(form["password"]))
+        if errors:
+            return render(request, "settings.html", 400, mode="settings", locked=field_state(), errors=errors, form=dict(form),
+                          claude_ok=claude_auth_configured(), http=request.url.scheme == "http",
+                          telegram=telegram_state)
+        await apply(values, (settings.telegram_bot_token, settings.telegram_allowed_chat_ids))
+        message = "Einstellungen gespeichert."
+        if telegram_state["error"]:
+            flash(request, f"Gespeichert, aber der Telegram-Bot startet nicht: {telegram_state['error']}", "error")
+        else:
+            flash(request, message)
+        return redirect("/settings")
 
     # --- auth ---------------------------------------------------------------------
 
