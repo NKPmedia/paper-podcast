@@ -136,9 +136,31 @@ def _export_env(settings: Settings) -> None:
         os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = settings.claude_code_oauth_token
 
 
+def _migrate_legacy(settings: Settings) -> None:
+    """Earlier versions used jobs.sqlite3, settings.json and secret files; take them over once."""
+    data = settings.data_dir
+    old_db = data / "jobs.sqlite3"
+    if old_db.exists() and not settings.db_path.exists():
+        old_db.rename(settings.db_path)
+    legacy = {}
+    old_json = data / "settings.json"
+    if old_json.exists():
+        legacy.update({k: v for k, v in json.loads(old_json.read_text(encoding="utf-8")).items() if k in STORED})
+    for key in GENERATED_SECRETS:
+        path = data / key
+        if path.exists():
+            legacy.setdefault(key, path.read_text().strip())
+    if legacy:
+        save_settings(settings, legacy)
+        for path in (old_json, data / "session_secret", data / "feed_token"):
+            if path.exists():
+                path.rename(path.with_name(path.name + ".migrated"))
+
+
 def load_settings(data_dir: Path | None = None, **defaults) -> Settings:
     """Defaults, overlaid with the values stored in SQLite. Generates missing secrets."""
     settings = Settings(**({"data_dir": data_dir} if data_dir else {}), **defaults)
+    _migrate_legacy(settings)
     with closing(_connect(settings.db_path)) as conn:
         stored = dict(conn.execute("SELECT key, value FROM settings").fetchall())
     for key, raw in stored.items():

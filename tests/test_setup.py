@@ -168,3 +168,19 @@ def test_cli_set_password(tmp_path, monkeypatch):
     monkeypatch.setattr("getpass.getpass", lambda prompt="": next(answers))
     assert cli.main(["set-password"]) == 0
     assert verify_password("cli-passwort-123", load_settings(tmp_path).web_password_hash)
+
+
+def test_migrates_previous_layout(tmp_path):
+    import json
+
+    from app.db import JobStore
+
+    old = JobStore(tmp_path / "jobs.sqlite3")
+    old.add("20260101-000000-alt", "Altes Thema")
+    (tmp_path / "settings.json").write_text(json.dumps({"podcast_name": "Alt", "web_password_hash": "scrypt$x"}))
+    (tmp_path / "feed_token").write_text("altes-token")
+    s = load_settings(tmp_path)
+    assert (s.podcast_name, s.web_password_hash, s.feed_token) == ("Alt", "scrypt$x", "altes-token")
+    assert JobStore(s.db_path).get("20260101-000000-alt").topic == "Altes Thema"
+    assert not (tmp_path / "settings.json").exists() and (tmp_path / "settings.json.migrated").exists()
+    assert load_settings(tmp_path).feed_token == "altes-token"  # stable on the next start
