@@ -2,6 +2,8 @@ import json
 
 import pytest
 
+from app.errors import PodcastError
+
 from app.models import Candidate, EpisodeOptions, EpisodeRequest, Length, RankedCandidate, ResearchDepth
 from app.papers import DownloadError, check_public_https, download_all, html_to_markdown, pdf_to_markdown
 from app.pipeline import create_job, load_context, run_pipeline
@@ -238,7 +240,7 @@ async def test_all_scouts_failing_is_an_error(settings):
     responses = default_responses()
     responses["ScoutResult"] = [boom] * 3
     ctx = ctx_for(settings, job(settings), FakeClaude(responses))
-    with pytest.raises(RuntimeError, match="Alle Scouts"):
+    with pytest.raises(PodcastError, match="alle 3 Scouts"):
         await run_pipeline(ctx)
 
 
@@ -258,3 +260,38 @@ async def test_script_without_full_texts_has_no_lookup_section(settings):
     (script_call,) = claude.calls_for("Script")
     assert "Volltexte zum Nachschlagen" not in script_call.prompt
     assert "und die Volltexte" not in script_call.prompt
+
+
+async def test_scout_failure_names_the_cause(settings):
+    from app.claude import claude_error
+    from app.pipeline.research import scouts_failed
+
+    auth = claude_error("ProcessError: exit code 1", ["Invalid API key · Please run /login"])
+    error = scouts_failed({"background": auth, "core": auth, "critique": auth})
+    assert error.message.startswith("Die Recherche ist fehlgeschlagen (alle 3 Scouts). Claude konnte sich nicht anmelden")
+    assert "Scout 'core'" in error.details and "Invalid API key" in error.details
+
+    mixed = scouts_failed({"core": auth, "critique": TimeoutError("slow")})
+    assert "aus verschiedenen Gründen" in mixed.message and "slow" in mixed.message and "anmelden" in mixed.message
+    assert "TimeoutError: slow" in mixed.details
+
+
+def test_claude_error_classification():
+    from app.claude import claude_error
+
+    assert "Nutzungslimit" in claude_error("API Error: 429 usage limit reached").message
+    assert "überlastet" in claude_error("", ["API Error: 529 Overloaded"]).message
+    assert "Netzwerk" in claude_error("Error: getaddrinfo ENOTFOUND api.anthropic.com").message
+    assert "Rundenlimit" in claude_error("Claude failed: subtype=error_max_turns").message
+    generic = claude_error("Something odd about arXiv 2401.00001")  # no false 401 match
+    assert generic.message == "Claude ist mit einem Fehler abgebrochen." and "2401.00001" in generic.details
+
+
+async def test_title_is_set_as_soon_as_research_names_it(settings):
+    titles = []
+    responses = default_responses()
+    job_dir = job(settings, ResearchDepth.quick)
+    ctx = ctx_for(settings, job_dir, FakeClaude(responses))
+    ctx.on_title = titles.append
+    await run_pipeline(ctx)
+    assert titles == ["Testthema", "Testepisode"]  # research title first, then the script's

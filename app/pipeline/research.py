@@ -27,6 +27,7 @@ from app.models import (
     json_schema,
 )
 from app.papers import download_all, normalize_arxiv_id, to_index
+from app.errors import PodcastError
 from app.prompts import render_stage
 
 NAME = "research"
@@ -186,18 +187,39 @@ async def run_scouts(ctx, profile: DepthProfile, skills: list[str]) -> list[Rank
         *(_run_scout(ctx, angle, profile, skills) for angle in profile.angles),
         return_exceptions=True,
     )
-    results = {}
+    results, failures = {}, {}
     for angle, outcome in zip(profile.angles, outcomes):
         if isinstance(outcome, BaseException):
+            failures[angle] = outcome
             ctx.log.write("scout_failed", stage=NAME, angle=angle, error=f"{type(outcome).__name__}: {outcome}")
         else:
             results[angle] = outcome
     if not results:
-        raise RuntimeError("Alle Scouts sind fehlgeschlagen")
+        raise scouts_failed(failures)
     ranked = merge_candidates(results)
     if not ranked:
-        raise RuntimeError("Die Scouts haben keine Quellen gefunden")
+        raise PodcastError(
+            "Die Recherche hat keine passenden Quellen gefunden. Formuliere das Thema konkreter – z.B. mit "
+            "Paper-Titel, Autor*innen, arXiv-ID oder Fachbegriffen – und starte die Episode neu.",
+            f"{len(results)} scout(s) returned no candidates for the topic: {ctx.request.topic!r}",
+        )
     return ranked
+
+
+def scouts_failed(failures: dict[str, BaseException]) -> PodcastError:
+    """One clear message for 'every scout failed', naming the cause (usually the same for all)."""
+    reasons = {str(exc) for exc in failures.values()}
+    count = len(failures)
+    if len(reasons) == 1:
+        message = f"Die Recherche ist fehlgeschlagen ({'der Scout' if count == 1 else f'alle {count} Scouts'}). " + reasons.pop()
+    else:
+        causes = " / ".join(sorted(reason[:160] for reason in reasons)[:3])
+        message = f"Die Recherche ist fehlgeschlagen: Alle {count} Scouts brachen ab, aus verschiedenen Gründen: {causes}"
+    details = "\n\n".join(
+        f"Scout '{angle}': {type(exc).__name__}: {exc}" + (f"\n{exc.details}" if isinstance(exc, PodcastError) and exc.details else "")
+        for angle, exc in failures.items()
+    )
+    return PodcastError(message, details)
 
 
 # --- 1b. Selection ----------------------------------------------------------------
@@ -318,6 +340,7 @@ async def run(ctx) -> None:
         _write_json(ctx.path("papers/index.json"), papers)
 
     research = await read_and_write_notes(ctx, candidates, selection, papers, profile, skills)
+    await ctx.set_title(research.title_suggestion)
     ctx.path("research.md").write_text(
         f"# {research.title_suggestion}\n\n{research.notes.strip()}\n\n"
         f"## Material für den Podcast\n\n{research.podcast_material.strip()}\n",

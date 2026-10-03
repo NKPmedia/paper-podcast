@@ -26,10 +26,11 @@ from app.assets import MAX_UPLOAD_BYTES, AssetError, save_cover, save_jingle
 from app.auth import LoginThrottle, hash_password, verify_password
 from app.claude import claude_auth_configured
 from app.config import Settings, ensure_secrets, get_settings
+from app.errors import split_error
 from app.db import JobStore
 from app.jobs import ContextFactory, JobError, JobService, Worker
 from app.models import EpisodeOptions, EpisodeRequest, Length, ResearchDepth
-from app.pipeline import STAGE_ARTIFACTS, prompt_context, stages_for
+from app.pipeline import STAGE_ARTIFACTS, prompt_context, slugify, stages_for
 from app.prompts import BLOCK_DESCRIPTIONS, PromptStore
 from app.skills import STAGES as SKILL_STAGES
 from app.skills import MAX_ZIP_BYTES, SkillError, SkillStore
@@ -212,7 +213,7 @@ def create_app(
         return f"{value:.2f}".replace(".", ",") + " $" if value else ""
 
     templates.env.filters.update(time=fmt_time, duration=fmt_duration, markdown=_markdown.render, safe_url=_safe_url,
-                                 money=fmt_money)
+                                 money=fmt_money, split_error=split_error)
     templates.env.globals.update(status_labels=STATUS_LABELS, stage_labels=STAGE_LABELS, settings=settings)
 
     # --- helpers ------------------------------------------------------------------
@@ -525,7 +526,7 @@ def create_app(
         job, job_dir = load_job(job_id)
         if job is None or not (job_dir / "episode.mp3").exists():
             return Response("Nicht gefunden", status_code=404)
-        filename = f"{job_id}.mp3" if download else None
+        filename = f"{slugify(job.display_title, 60)}.mp3" if download else None
         return FileResponse(job_dir / "episode.mp3", media_type="audio/mpeg", filename=filename)
 
     @app.get("/episodes/{job_id}/handout")
@@ -535,7 +536,7 @@ def create_app(
         if job is None or not (job_dir / "handout.pdf").exists():
             return Response("Nicht gefunden", status_code=404)
         return FileResponse(job_dir / "handout.pdf", media_type="application/pdf",
-                            filename=f"{job_id}-handout.pdf" if download else None)
+                            filename=f"{slugify(job.display_title, 60)}-handout.pdf" if download else None)
 
     async def job_action(request: Request, job_id: str, action):
         require_user(request)

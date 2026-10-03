@@ -17,6 +17,7 @@ from app.claude import ClaudeCall
 from app.latex import LatexRejected, build_document, check_body, compile_pdf, expand_plots
 from app.models import Handout, HandoutFix, PlotFixes, Script, Source, json_schema
 from app.plots import render_plot
+from app.errors import PodcastError
 from app.prompts import render_stage
 
 NAME = "handout"
@@ -121,8 +122,14 @@ async def run(ctx) -> None:
         if not error:
             break
         latex_errors.append(error)
-        if "nicht installiert" in error or attempt == LATEX_REPAIRS:
-            raise RuntimeError(f"Das Handout ließ sich nicht setzen: {error}")
+        if "nicht installiert" in error:
+            raise PodcastError("Das Handout kann nicht gesetzt werden: pdflatex fehlt im Container.", error)
+        if attempt == LATEX_REPAIRS:
+            raise PodcastError(
+                f"Das Handout ließ sich auch nach {LATEX_REPAIRS} Korrekturen nicht mit LaTeX setzen. Mit "
+                "„Fortsetzen“ erneut versuchen oder die Episode ohne Handout neu erzeugen.",
+                "\n\n---\n\n".join(latex_errors),
+            )
         await ctx.notify(NAME, "LaTeX-Fehler im Handout wird korrigiert")
         fix = await ask(
             "Das Handout ließ sich nicht mit pdflatex setzen:\n\n```\n" + error + "\n```\n\n"

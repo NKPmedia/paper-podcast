@@ -28,7 +28,11 @@
   {% elif job.status in ("failed", "cancelled") %}
   <p>{% if job.status == "failed" %}Beim Schritt <b>{{ stage_labels.get(job.stage, "Start") }}</b> ist ein Fehler aufgetreten.{% else %}Die Episode wurde abgebrochen.{% endif %}
      <b>Fortsetzen</b> macht an dieser Stelle weiter; fertige Schritte werden nicht wiederholt.</p>
-  {% if job.error %}<details><summary>Technische Details</summary><pre class="error-box">{{ job.error }}</pre></details>{% endif %}
+  {% if job.error %}
+  {% set error_message, error_details = job.error | split_error %}
+  <div class="flash error" role="alert">{{ error_message }}</div>
+  {% if error_details %}<details><summary>Technische Details (Fehlertext und Stacktrace)</summary><pre class="error-box">{{ error_details }}</pre></details>{% endif %}
+  {% endif %}
   <div class="actions">
     <form method="post" action="/episodes/{{ job.id }}/retry"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="primary">Fortsetzen</button></form>
   </div>

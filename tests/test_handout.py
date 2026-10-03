@@ -76,7 +76,7 @@ async def test_handout_fails_after_repairs(settings):
     job_dir = handout_job(settings)
     ctx = load_context(job_dir, settings, claude=FakeClaude(responses), tts=FakeTTS())
     ctx.download_options = mock_downloads()
-    with pytest.raises(RuntimeError, match="Handout ließ sich nicht setzen"):
+    with pytest.raises(RuntimeError, match="Handout ließ sich auch nach 2 Korrekturen nicht"):
         await run_pipeline(ctx)
     assert not (job_dir / "handout.pdf").exists()
 

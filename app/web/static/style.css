@@ -176,3 +176,4 @@ main:has(.settings-layout) { max-width: 1100px; }
   .settings-nav { position: static; }
   .settings-nav ul { display: flex; flex-wrap: wrap; gap: 4px; }
 }
+.error-box { color: var(--text); max-height: 420px; overflow: auto; font-size: 0.8rem; }

@@ -9,20 +9,58 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
 from app.config import SECRET_ENV_VARS
+from app.errors import PodcastError
 
 log = logging.getLogger(__name__)
 
 
-class ClaudeError(RuntimeError):
+class ClaudeError(PodcastError):
     pass
 
 
-AUTH_HINTS = ("401", "403", "authentication", "unauthorized", "invalid api key", "oauth", "/login", "not logged in")
+# (regex over the raw error and Claude's stderr, summary shown to the user)
+CAUSES = (
+    (r"invalid api key|invalid bearer|authentication|unauthorized|\b401\b|oauth token|not logged in|/login"
+     r"|token (has )?expired",
+     "Claude konnte sich nicht anmelden: Der Claude-Token ist ungültig oder abgelaufen. Erzeuge einen neuen mit "
+     "`claude setup-token` und trag ihn unter Einstellungen → Claude ein."),
+    (r"usage limit|rate.?limit|\b429\b|quota",
+     "Das Claude-Nutzungslimit ist erreicht. Später mit „Fortsetzen“ weitermachen; fertige Schritte bleiben erhalten."),
+    (r"overloaded|\b529\b|internal server error|\b50[023]\b",
+     "Die Claude-Server sind gerade überlastet oder gestört. Bitte später mit „Fortsetzen“ erneut versuchen."),
+    (r"enotfound|econnrefused|econnreset|etimedout|getaddrinfo|network error|connection error|unable to connect"
+     r"|fetch failed",
+     "Claude ist vom Server aus nicht erreichbar (Netzwerkproblem). Prüfe die Internetverbindung des Servers."),
+    (r"model not found|invalid model|not_found_error",
+     "Das eingestellte Claude-Modell ist nicht verfügbar. Prüfe die Modellnamen unter Einstellungen → Claude."),
+    (r"error_max_turns|max_turns|maximum number of turns",
+     "Claude hat das Rundenlimit erreicht, bevor die Antwort fertig war. Mit „Fortsetzen“ erneut versuchen oder "
+     "unter Einstellungen → Claude mehr Runden erlauben."),
+    (r"clinotfound|claude code not found",
+     "Claude Code wurde im Container nicht gefunden. Das Image ist vermutlich beschädigt – bitte neu ziehen."),
+)
+
+
+def claude_error(raw: str, stderr: list[str] | None = None) -> ClaudeError:
+    """Turn a raw Claude failure into a ClaudeError with a clear summary."""
+    tail = "\n".join(stderr or [])[-3000:]
+    haystack = f"{raw}\n{tail}".lower()
+    summary = next((text for pattern, text in CAUSES if re.search(pattern, haystack)),
+                   "Claude ist mit einem Fehler abgebrochen.")
+    details = raw + (f"\n\nClaude Code output (last lines):\n{tail}" if tail.strip() else "")
+    return ClaudeError(summary, details)
+
+
+def explain(error: str) -> str:
+    """Short summary for a raw Claude error (used for checks and messages)."""
+    return claude_error(error).message
 
 
 def claude_auth_configured() -> bool:
@@ -31,18 +69,6 @@ def claude_auth_configured() -> bool:
         return True
     config_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude"))
     return (config_dir / ".credentials.json").exists()
-
-
-def explain(error: str) -> str:
-    """Prefix a raw Claude error with a German explanation where we recognise the cause."""
-    lower = error.lower()
-    if any(hint in lower for hint in AUTH_HINTS):
-        return ("Claude konnte sich nicht anmelden. Prüfe den Claude-Token unter Einstellungen → Claude "
-                "(neu erzeugen mit `claude setup-token`). Details: " + error)
-    if ("rate" in lower and "limit" in lower) or "429" in lower or "usage limit" in lower:
-        return ("Das Claude-Nutzungslimit ist erreicht. Später mit „Fortsetzen“ weitermachen; "
-                "fertige Schritte bleiben erhalten. Details: " + error)
-    return error
 
 
 @dataclass
@@ -87,6 +113,12 @@ class AgentSDKRunner:
             query,
         )
 
+        stderr_lines: deque[str] = deque(maxlen=40)
+
+        def on_stderr(line: str) -> None:
+            log.debug("claude: %s", line)
+            stderr_lines.append(line.rstrip())
+
         tools = list(call.tools)
         if call.skills and "Skill" not in tools:
             tools.append("Skill")
@@ -103,7 +135,7 @@ class AgentSDKRunner:
             model=call.model,
             resume=call.resume,
             env=scrubbed_env(),
-            stderr=lambda line: log.debug("claude: %s", line),
+            stderr=on_stderr,
         )
 
         result: ResultMessage | None = None
@@ -121,17 +153,19 @@ class AgentSDKRunner:
         except ClaudeError:
             raise
         except Exception as exc:  # CLI crashed, could not start, auth failed before the first turn …
-            raise ClaudeError(explain(f"{type(exc).__name__}: {exc}")) from exc
+            raise claude_error(f"{type(exc).__name__}: {exc}", list(stderr_lines)) from exc
 
         if result is None:
-            raise ClaudeError("Claude hat kein Ergebnis geliefert")
+            raise claude_error("Claude Code ended without a result message", list(stderr_lines))
         if result.is_error:
-            raise ClaudeError(explain(
-                f"Claude failed ({result.subtype}, stop={result.terminal_reason}): "
-                f"{result.errors or result.result}"
-            ))
+            raise claude_error(
+                f"Claude failed: subtype={result.subtype}, stop={result.terminal_reason}, "
+                f"api_status={result.api_error_status}, errors={result.errors or result.result}",
+                list(stderr_lines),
+            )
         if call.output_schema and result.structured_output is None:
-            raise ClaudeError("Claude hat keine strukturierte Antwort geliefert")
+            raise ClaudeError("Claude hat keine strukturierte Antwort geliefert (das JSON-Format fehlte).",
+                              f"result text: {(result.result or '')[:2000]}")
         return ClaudeResult(
             structured=result.structured_output,
             text=result.result or "",

@@ -149,14 +149,15 @@ async def test_web_job_is_announced_and_delivered(env):
 
 async def test_failed_job_can_be_resumed_from_telegram(env):
     responses = default_responses()
-    responses["ScoutResult"] = [lambda call: (_ for _ in ()).throw(RuntimeError("kaputt"))]
+    responses["ScoutResult"] = [lambda call: (_ for _ in ()).throw(RuntimeError("kaputt"))] * 3
     env.worker.context_factory = lambda d: (lambda ctx: (setattr(ctx, "download_options", mock_downloads()), ctx)[1])(
         load_context(d, env.settings, claude=FakeClaude(responses), tts=FakeTTS()))
     env.service.submit(EpisodeRequest(topic="Wird scheitern"))
     failed = await run_next(env)
     assert failed.status == "failed"
     last = env.m.edits[-1]
-    assert last["text"].startswith("❌") and "Alle Scouts" in last["text"]
+    assert last["text"].startswith("❌") and "Recherche ist fehlgeschlagen" in last["text"] and "kaputt" in last["text"]
+    assert "Traceback" not in last["text"]  # technical details stay in the web UI
     assert buttons(last) == [f"r:{failed.id}"]
 
     await env.bot.handle_callback(CHAT, last["id"], "cb", f"r:{failed.id}")

@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from app.claude import ClaudeCall
 from app.models import Script, Source, json_schema
+from app.errors import PodcastError
 from app.prompts import render_stage
 
 NAME = "script"
@@ -120,10 +121,15 @@ async def run(ctx) -> None:
             ctx.path("script.json").write_text(
                 script.model_dump_json(indent=2), encoding="utf-8"
             )
+            await ctx.set_title(script.title)
             return
         prompt = (
             "Das Skript erfüllt die Anforderungen noch nicht:\n- "
             + "\n- ".join(problems)
             + "\n\nBitte korrigiere das und gib das vollständige, überarbeitete Skript zurück."
         )
-    raise RuntimeError("Skript nach mehreren Versuchen ungültig: " + "; ".join(problems))
+    raise PodcastError(
+        f"Claude hat nach {MAX_ATTEMPTS} Versuchen kein gültiges Skript geliefert. Mit „Fortsetzen“ erneut "
+        "versuchen; hilft das nicht, die Länge ändern oder die Sprechregeln unter Prompts prüfen.",
+        "Remaining problems:\n- " + "\n- ".join(problems),
+    )

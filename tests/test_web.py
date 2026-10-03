@@ -117,9 +117,11 @@ def test_failed_job_shows_error_and_can_resume(web_settings):
         job = app.state.service.store.claim_next()
         asyncio.run(app.state.worker.run_job(job))
         stored = app.state.service.store.get(job.id)
-        assert stored.status == "failed" and "Alle Scouts" in stored.error
+        assert stored.status == "failed" and stored.error.startswith("Die Recherche ist fehlgeschlagen (der Scout). kaputt")
+        assert "Traceback (most recent call last)" in stored.error and "Scout 'overview'" in stored.error
         page = client.get(f"/episodes/{job.id}")
-        assert "Alle Scouts" in page.text and "Fortsetzen" in page.text
+        assert "Die Recherche ist fehlgeschlagen" in page.text and "Fortsetzen" in page.text
+        assert "Technische Details (Fehlertext und Stacktrace)" in page.text and "Traceback" in page.text
         client.post(f"/episodes/{job.id}/retry", data={"csrf": csrf(client)})
         assert app.state.service.store.get(job.id).status == "queued"
 

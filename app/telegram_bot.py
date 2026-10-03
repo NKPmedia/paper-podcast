@@ -20,6 +20,7 @@ from typing import Protocol
 
 from app.config import Settings
 from app.db import Job
+from app.errors import split_error
 from app.jobs import JobError, JobService, Worker
 from app.models import EpisodeOptions, EpisodeRequest, Length, ResearchDepth
 from app.pipeline import STAGE_ARTIFACTS, stages_for
@@ -302,7 +303,7 @@ class TelegramBot:
         elif job.status == "failed":
             lines.append(f"Fehler beim Schritt <b>{STAGE_LABELS.get(job.stage, 'Start')}</b>. "
                          "„Fortsetzen“ macht dort weiter, fertige Schritte bleiben erhalten.")
-            lines.append(f"<code>{esc(job.error[:400])}</code>")
+            lines.append(esc(split_error(job.error)[0][:600]))
             keyboard = [[("🔁 Fortsetzen", f"r:{job.id}")]]
         elif job.status == "cancelled":
             lines.append("Abgebrochen.")

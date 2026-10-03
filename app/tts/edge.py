@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 from app.config import Settings
+from app.errors import PodcastError
 from app.models import Script
 from app.tts import Clip
 
@@ -65,7 +66,12 @@ class EdgeTTS:
                 return
             except Exception as exc:  # network hiccups, throttling
                 if attempt == RETRIES:
-                    raise RuntimeError(f"Edge TTS failed for {path.name}: {exc}") from exc
+                    raise PodcastError(
+                        "Die Sprachausgabe (Edge TTS) ist nicht erreichbar. Prüfe die Internetverbindung des Servers "
+                        "oder trag unter Einstellungen → Stimmen einen Gemini-Key ein. Mit „Fortsetzen“ geht es "
+                        "beim letzten Satz weiter.",
+                        f"Edge TTS failed for {path.name} after {RETRIES} attempts: {type(exc).__name__}: {exc}",
+                    ) from exc
                 delay = 2**attempt
                 log.warning("Edge TTS %s failed (%s), retry in %ss", path.name, exc, delay)
                 await asyncio.sleep(delay)

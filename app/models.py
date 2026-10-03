@@ -89,7 +89,8 @@ class Selection(BaseModel):
 
 
 class ResearchResult(BaseModel):
-    title_suggestion: str = Field(description="Arbeitstitel für die Episode")
+    title_suggestion: str = Field(description="Titel für die Episode auf Deutsch: kurz (höchstens 60 Zeichen), "
+                                              "konkret und neugierig machend")
     notes: str = Field(description="Ausführliche Recherche-Notizen als Markdown")
     podcast_material: str = Field(
         description="Markdown: Beispiele, Analogien, überraschende Fakten, Anekdoten und "
@@ -113,7 +114,8 @@ class Chapter(BaseModel):
 
 
 class Script(BaseModel):
-    title: str
+    title: str = Field(description="Episodentitel auf Deutsch: kurz (höchstens 60 Zeichen), konkret und neugierig "
+                                   "machend – kein bloßes Wiederholen des Themas, kein Doppelpunkt-Untertitel nötig")
     summary: str = Field(description="Zwei bis drei Sätze Shownotes")
     chapters: list[Chapter]
     handout_items: list[str] = Field(

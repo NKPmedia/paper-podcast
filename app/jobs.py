@@ -17,7 +17,8 @@ from typing import Callable, Protocol
 from app.config import Settings
 from app.db import Job, JobStore, now
 from app.models import EpisodeRequest
-from app.pipeline import STAGE_NAMES, EpisodeContext, create_job, load_context, run_pipeline
+from app.errors import format_error
+from app.pipeline import STAGE_NAMES, EpisodeContext, create_job, current_title, load_context, run_pipeline
 from app.prompts import PromptStore
 
 log = logging.getLogger(__name__)
@@ -159,10 +160,17 @@ class Worker:
             self.store.update(job.id, stage=stage, message=message)
             await self._emit(job.id, "progress")
 
+        async def set_title(title: str) -> None:
+            self.store.update(job.id, title=title)
+            await self._emit(job.id, "progress")
+
+        if not job.title and (known := current_title(job_dir)):
+            self.store.update(job.id, title=known)
         await self._emit(job.id, "started")
         task = None
         try:
             ctx = self.context_factory(job_dir)
+            ctx.on_title = set_title
             task = asyncio.create_task(run_pipeline(ctx, progress=progress, from_stage=job.from_stage))
             self._current = (job.id, task)
             await task
@@ -182,8 +190,9 @@ class Worker:
             raise
         except Exception as exc:
             log.exception("Job %s failed", job.id)
+            stage = (self.store.get(job.id) or job).stage
             self.store.update(
-                job.id, status="failed", error=f"{type(exc).__name__}: {exc}"[:4000],
+                job.id, status="failed", error=format_error(exc, stage),
                 from_stage=None, finished_at=now(), cost_usd=episode_cost(job_dir),
             )
             self._current = None

@@ -49,6 +49,8 @@ class EpisodeContext:
     # Extra keyword arguments for app.papers.download_all (tests inject an HTTP client).
     download_options: dict = field(default_factory=dict)
     progress: ProgressCallback | None = None
+    # Called with the episode title as soon as the AI has chosen one (research, then script).
+    on_title: Callable[[str], Awaitable[None] | None] | None = None
     log: EpisodeLog = field(init=False)
 
     def __post_init__(self):
@@ -60,8 +62,27 @@ class EpisodeContext:
             if maybe is not None:
                 await maybe
 
+    async def set_title(self, title: str) -> None:
+        title = " ".join((title or "").split())[:120]
+        if title and self.on_title:
+            maybe = self.on_title(title)
+            if maybe is not None:
+                await maybe
+
     def path(self, name: str) -> Path:
         return self.job_dir / name
+
+
+def current_title(job_dir: Path) -> str:
+    """The best title known so far: from the script, else from the research notes."""
+    script = job_dir / "script.json"
+    if script.exists():
+        return json.loads(script.read_text(encoding="utf-8")).get("title", "")
+    research = job_dir / "research.md"
+    if research.exists():
+        first = research.read_text(encoding="utf-8").split("\n", 1)[0]
+        return first.removeprefix("# ").strip()
+    return ""
 
 
 def slugify(text: str, max_len: int = 40) -> str:

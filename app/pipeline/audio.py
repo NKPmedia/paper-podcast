@@ -15,6 +15,7 @@ import wave
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.errors import PodcastError
 from app.models import Script, Source
 
 NAME = "audio"
@@ -33,7 +34,8 @@ def ffmpeg(*args: str) -> subprocess.CompletedProcess:
     cmd = ["ffmpeg", "-hide_banner", "-nostdin", "-y", *args]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
-        raise RuntimeError(f"ffmpeg failed: {' '.join(cmd)}\n{proc.stderr[-2000:]}")
+        raise PodcastError("Das Audio konnte nicht zusammengesetzt werden (ffmpeg-Fehler).",
+                           f"ffmpeg failed: {' '.join(cmd)}\n{proc.stderr[-2000:]}")
     return proc
 
 
