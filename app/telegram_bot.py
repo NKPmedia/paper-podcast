@@ -23,6 +23,7 @@ from app.db import Job
 from app.errors import split_error
 from app.jobs import JobError, JobService, Worker
 from app.models import EpisodeOptions, EpisodeRequest, Language, Length, ResearchDepth
+from app.feed import TEXT as FEED_TEXT, episode_language
 from app.pipeline import clarify
 from app.pipeline.research import depth_hint
 from app.pipeline import STAGE_ARTIFACTS, stages_for
@@ -486,6 +487,7 @@ class TelegramBot:
             await self.messenger.send_text(chat_id, "Die Audiodatei dieser Episode fehlt.")
             return
         episode = json.loads(episode_file.read_text(encoding="utf-8"))
+        labels = FEED_TEXT[episode_language(episode, job_dir)]  # the episode's language, as in the feed
         caption = f"<b>{esc(episode['title'])}</b>\n\n{esc(episode['summary'])}"
         if len(caption) > 1000:
             caption = caption[:997] + "…"
@@ -506,7 +508,7 @@ class TelegramBot:
             meta = self._meta(job.id)
             file_id = await self.messenger.send_document(
                 chat_id, None if meta.get("handout_file_id") else handout, file_id=meta.get("handout_file_id"),
-                filename=f"Handout - {episode['title'][:60]}.pdf", caption="📄 Handout zur Episode",
+                filename=f"Handout - {episode['title'][:60]}.pdf", caption=f"📄 {labels['handout']}",
             )
             if file_id and file_id != meta.get("handout_file_id"):
                 meta["handout_file_id"] = file_id
@@ -515,9 +517,9 @@ class TelegramBot:
         sources = "\n".join(
             "• " + esc(s["title"]) + (f" ({esc(s['year'])})" if s.get("year") else "") for s in episode["sources"][:8]
         )
-        text = f"<b>Kapitel</b>\n{chapters}"
+        text = f"<b>{labels['chapters']}</b>\n{chapters}"
         if sources:
-            text += f"\n\n<b>Quellen</b>\n{sources}"
+            text += f"\n\n<b>{labels['sources']}</b>\n{sources}"
         await self.messenger.send_text(chat_id, text[:4000] + self._web_link(job.id))
 
     # --- commands -------------------------------------------------------------------------

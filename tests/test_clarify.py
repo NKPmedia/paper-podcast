@@ -158,3 +158,38 @@ async def test_answers_elsewhere_end_other_telegram_sessions(env):  # noqa: F811
     env.service.answer(job2.id, [])
     await env.bot.handle_text(CHAT, "Noch ein Thema")
     assert "<b>Neue Episode</b>" in env.m.sent[-1]["text"] and CHAT not in env.bot.sessions
+
+
+async def test_english_episode_is_delivered_with_english_labels(env):  # noqa: F811
+    env.worker.context_factory = lambda d: _ctx(env, d)
+    await env.bot.handle_text(CHAT, "Mamba")
+    draft = env.m.sent[-1]
+    await env.bot.handle_callback(CHAT, draft["id"], "cb", "d:lang:en")
+    await env.bot.handle_callback(CHAT, draft["id"], "cb", "d:len:kurz")
+    await env.bot.handle_callback(CHAT, draft["id"], "cb", "d:dep:quick")
+    await env.bot.handle_callback(CHAT, draft["id"], "cb", "d:cl")  # no questions
+    await env.bot.handle_callback(CHAT, draft["id"], "cb", "d:go")
+    assert (await run_next(env)).status == "done"
+    delivery = env.m.sent[-1]["text"]
+    assert "<b>Chapters</b>" in delivery and "<b>Sources</b>" in delivery and "<b>Kapitel</b>" not in delivery
+
+
+def test_episode_page_tolerates_indexes_from_before_the_upgrade(web_settings):  # noqa: F811
+    from app.db import JobStore
+
+    with make_client(web_settings) as client:
+        login(client)
+        job_dir = web_settings.episodes_dir / "20260101-000000-alt"
+        (job_dir / "papers").mkdir(parents=True)
+        (job_dir / "request.json").write_text(json.dumps({"request": {"topic": "Alt", "options": {}}}))
+        (job_dir / "papers/index.json").write_text(json.dumps([
+            {"id": "arxiv:1", "title": "Alt", "file": "papers/arxiv_1.md", "lines": 10, "truncated": True,
+             "source_url": "", "format": "html", "error": ""}]))  # no omitted_chars / appendix fields yet
+        (job_dir / "reading.json").write_text(json.dumps([
+            {"id": "arxiv:1", "title": "Alt", "file": "papers/arxiv_1.md", "tokens": 9000, "mode": "full",
+             "cost": 9000, "reason": "Kernpaper"}]))
+        (job_dir / "candidates.json").write_text(json.dumps([
+            {"id": "arxiv:1", "title": "Alt", "score": 9, "reason": "r", "found_by": ["core"]}]))
+        JobStore(web_settings.db_path).add(job_dir.name, "Alt")
+        page = client.get(f"/episodes/{job_dir.name}")
+        assert page.status_code == 200 and "Hauptteil gekürzt" in page.text

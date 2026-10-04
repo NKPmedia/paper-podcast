@@ -47,7 +47,7 @@ SCOUT = {
 SELECTION = {"focus": "Ergebnis A", "selected": [{"id": "arxiv:2401.00001", "reason": "Kern"}]}
 PLAN = {
     "focus": "Ergebnis A und seine Grenzen",
-    "key_questions": ["Was zeigt das Paper?", "Wo sind die Grenzen?"],
+    "key_questions": ["Was zeigt das Paper?", "Wie funktioniert die Methode?", "Wo sind die Grenzen?"],
     "tasks": [
         {"title": "Core work", "objective": "Find the core paper", "search_hints": "transformer", "avoid": ""},
         {"title": "Foundations", "objective": "Prior work", "search_hints": "attention", "avoid": "core"},

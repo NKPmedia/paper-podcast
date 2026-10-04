@@ -141,12 +141,12 @@ async def make_plan(ctx, profile: DepthProfile) -> ResearchPlan:
         output_schema=json_schema(ResearchPlan), max_turns=3, model=model,
     ))
     plan = ResearchPlan.model_validate(result.structured)
-    if len(plan.tasks) < profile.min_scouts:  # the depth promises at least this many perspectives: ask once more
-        _log_claude(ctx, "plan", model, result, scouts=len(plan.tasks), retry=True)
+    problems = _plan_problems(plan, profile)
+    if problems:  # the depth promises this much coverage: ask once more
+        _log_claude(ctx, "plan", model, result, scouts=len(plan.tasks), questions=len(plan.key_questions), retry=True)
         result = await ctx.claude.run(ClaudeCall(
-            prompt=f"The plan has {len(plan.tasks)} scout task(s), but this research depth needs at least "
-                   f"{profile.min_scouts}, each a distinct perspective. Return the complete plan again with "
-                   f"between {profile.min_scouts} and {profile.max_scouts} tasks.",
+            prompt="The plan is not complete yet:\n- " + "\n- ".join(problems)
+                   + "\n\nReturn the complete plan again.",
             cwd=ctx.job_dir, tools=[], system_append=ctx.blocks["system"],
             output_schema=json_schema(ResearchPlan), max_turns=3, model=model, resume=result.session_id,
         ))
@@ -161,11 +161,36 @@ async def make_plan(ctx, profile: DepthProfile) -> ResearchPlan:
         if task.title.lower() not in titles:
             plan.tasks.append(task)
     plan.tasks = plan.tasks[: profile.max_scouts]
-    plan.key_questions = plan.key_questions[:8]
+    plan.key_questions = [q for q in plan.key_questions if q.strip()][:MAX_KEY_QUESTIONS]
+    for question in FALLBACK_QUESTIONS:  # still too few: add the questions every episode must answer
+        if len(plan.key_questions) >= MIN_KEY_QUESTIONS:
+            break
+        plan.key_questions.append(question)
     _log_claude(ctx, "plan", model, result, scouts=len(plan.tasks), questions=len(plan.key_questions))
     ctx.log.write("plan", stage=NAME, focus=plan.focus, scouts=[t.title for t in plan.tasks],
                   key_questions=plan.key_questions)
     return plan
+
+
+MIN_KEY_QUESTIONS, MAX_KEY_QUESTIONS = 3, 8
+# Used only when the plan still has fewer key questions than the minimum after one retry.
+FALLBACK_QUESTIONS = [
+    "What problem does the work address, and why does it matter?",
+    "How does the method work, explained step by step?",
+    "What are the main results, and how strong is the evidence?",
+    "What are the limitations, criticisms and open questions?",
+]
+
+
+def _plan_problems(plan: ResearchPlan, profile: DepthProfile) -> list[str]:
+    problems = []
+    if len(plan.tasks) < profile.min_scouts:
+        problems.append(f"It has {len(plan.tasks)} scout task(s), but this research depth needs between "
+                        f"{profile.min_scouts} and {profile.max_scouts}, each a distinct perspective.")
+    if len([q for q in plan.key_questions if q.strip()]) < MIN_KEY_QUESTIONS:
+        problems.append(f"It has {len(plan.key_questions)} key question(s); it needs {MIN_KEY_QUESTIONS} to "
+                        f"{MAX_KEY_QUESTIONS}.")
+    return problems
 
 
 # Standard perspectives, used only when the plan has fewer tasks than the depth requires.

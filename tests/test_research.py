@@ -415,7 +415,22 @@ async def test_plan_with_too_few_scouts_is_retried_then_filled(settings):
     job_dir = job(settings, ResearchDepth.deep)  # needs at least 3 scouts
     await run_pipeline(ctx_for(settings, job_dir, claude))
     retry = claude.calls_for("ResearchPlan")[1]
-    assert retry.resume and "needs at least 3" in retry.prompt
+    assert retry.resume and "needs between 3 and 6" in retry.prompt
     plan = json.loads((job_dir / "plan.json").read_text())
     assert [t["title"] for t in plan["tasks"]] == ["Core work", "Critique and replications", "Foundations"]
     assert len(claude.calls_for("ScoutResult")) == 3
+
+
+async def test_plan_with_too_few_key_questions_is_retried_then_filled(settings):
+    from tests.conftest import PLAN
+
+    thin = {**PLAN, "key_questions": ["Was zeigt das Paper?"]}
+    responses = default_responses()
+    responses["ResearchPlan"] = [thin, thin]
+    claude = FakeClaude(responses)
+    job_dir = job(settings, ResearchDepth.quick)
+    await run_pipeline(ctx_for(settings, job_dir, claude))
+    retry = claude.calls_for("ResearchPlan")[1]
+    assert retry.resume and "1 key question(s); it needs 3 to 8" in retry.prompt
+    questions = json.loads((job_dir / "plan.json").read_text())["key_questions"]
+    assert questions[0] == "Was zeigt das Paper?" and len(questions) == 3

@@ -183,7 +183,7 @@
     <tbody>
     {% for r in reading %}
     {% set pf = paper_by_id.get(r.id, {}) %}
-    <tr><td>{{ r.title or r.id }}<br><span class="hint">{{ r.reason }}{% if pf.truncated %} · Hauptteil gekürzt (~{{ (pf.omitted_chars / 4000) | round | int }}k Tokens fehlen){% endif %}{% if pf.appendix_file %} · Anhang separat ({{ pf.appendix_lines }} Zeilen){% endif %}{% if pf.references_removed %} · Literaturliste entfernt{% endif %}</span></td>
+    <tr><td>{{ r.title or r.id }}<br><span class="hint">{{ r.reason }}{% if pf.truncated %} · Hauptteil gekürzt{% if pf.omitted_chars %} (~{{ (pf.omitted_chars / 4000) | round | int }}k Tokens fehlen){% endif %}{% endif %}{% if pf.appendix_file %} · Anhang separat ({{ pf.appendix_lines }} Zeilen){% endif %}{% if pf.references_removed %} · Literaturliste entfernt{% endif %}</span></td>
       <td>{% if r.tokens %}{{ (r.tokens / 1000) | round(1) }}k{% else %}–{% endif %}</td>
       <td>{{ {"full": "komplett", "selective": "Kernabschnitte", "webfetch": "per Webabruf", "skipped": "nicht gelesen"}[r.mode] }}</td></tr>
     {% endfor %}

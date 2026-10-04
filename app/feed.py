@@ -27,9 +27,9 @@ def _duration(seconds: int | None) -> str:
 
 
 TEXT = {
-    "de": {"chapters": "Kapitel", "sources": "Quellen", "open": "Im Browser öffnen",
+    "de": {"chapters": "Kapitel", "sources": "Quellen", "open": "Im Browser öffnen", "handout": "Handout zur Episode",
            "description": "Private Podcast-Episoden zu Forschungsthemen, erstellt mit Claude."},
-    "en": {"chapters": "Chapters", "sources": "Sources", "open": "Open in the browser",
+    "en": {"chapters": "Chapters", "sources": "Sources", "open": "Open in the browser", "handout": "Handout for the episode",
            "description": "Private podcast episodes on research topics, made with Claude."},
 }
 
