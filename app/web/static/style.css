@@ -62,7 +62,7 @@ input, select, textarea {
   width: 100%; margin-top: 4px; padding: 8px 10px; font: inherit; font-weight: 400;
   color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
 }
-input[type="checkbox"] { width: auto; margin: 0; }
+input[type="checkbox"], input[type="radio"] { width: auto; margin: 0; }
 input[type="file"] { width: auto; }
 textarea.code, pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9rem; }
 fieldset { border: 1px solid var(--border); border-radius: 8px; margin: 12px 0; }
@@ -194,3 +194,27 @@ main:has(.settings-layout) { max-width: 1100px; }
 .check-status .check-dot { position: relative; top: 1px; }
 .check-status.error { color: var(--danger); }
 .check-status.warn { color: var(--warn); }
+
+/* Claude usage and process log on the episode page */
+.usage-total { font-size: 1.15rem; margin: 4px 0; }
+table.calls { font-size: 0.85rem; }
+table.calls td:nth-child(n+3) { text-align: right; white-space: nowrap; }
+.card table.calls { display: block; overflow-x: auto; }
+ol.timeline { list-style: none; padding: 0; margin: 8px 0; font-size: 0.9rem; }
+ol.timeline li { padding: 3px 0 3px 10px; border-left: 3px solid var(--border); margin-bottom: 2px; }
+ol.timeline li .ts { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
+ol.timeline li.stage { border-left-color: var(--accent); font-weight: 600; margin-top: 8px; }
+ol.timeline li.done { border-left-color: var(--ok); }
+ol.timeline li.claude .text { color: var(--text); }
+ol.timeline li.warn { border-left-color: var(--warn); }
+ol.timeline li.error { border-left-color: var(--danger); color: var(--danger); }
+ol.timeline li.muted { color: var(--muted); }
+ol.timeline details { margin: 2px 0 4px; }
+
+/* Clarifying questions */
+.badge.waiting { color: var(--warn); border-color: var(--warn); font-weight: 600; }
+form.questions fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin: 0 0 12px; }
+form.questions legend { font-weight: 600; padding: 0 4px; }
+form.questions label.check { display: flex; align-items: baseline; margin: 6px 0; }
+dl.answers dt { font-weight: 600; margin-top: 8px; }
+dl.answers dd { margin: 2px 0 0 0; color: var(--muted); }

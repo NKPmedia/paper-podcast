@@ -1,7 +1,7 @@
 # Paper Podcast
 
-A self-hosted server that turns a topic or paper description into a German
-two-person podcast: Claude Code researches the topic on the web, writes a dialogue
+A self-hosted server that turns a topic or paper description into a German or English
+two-person podcast (chosen per episode): Claude Code researches the topic on the web, writes a dialogue
 between a curious host and an expert, and a free online TTS speaks it.
 
 See [PLAN.md](PLAN.md) for the full design. The core pipeline, the handout, the
@@ -82,8 +82,8 @@ finished audio as `episode.mp3`.
 
 | Page | What you can do |
 |---|---|
-| Episodes | Start an episode: topic, length, research depth, extra wishes, and optional additions to prompt blocks or extra skills for this episode only. See the list with live status. |
-| Episode | See live progress per stage. Play the episode with a chapter list and download the MP3. Read the script, research notes and sources. See the research details: candidates, selection, which full texts were downloaded, and every Claude call with model, turns and cost. Cancel, resume after an error, re-generate from a stage, or delete. |
+| Episodes | Start an episode: topic, length, research depth, language (German or English), extra wishes, and optional additions to prompt blocks or extra skills for this episode only. See the list with live status. |
+| Episode | See live progress per stage, the research plan and how each paper was read. Play the episode with a chapter list and download the MP3. Read the script, research notes and sources. See the **Claude usage** (total tokens: input, output, cache reads and writes, plus the API-equivalent cost, and every call with model, turns and tokens) and the **process log** ("Ablauf": every stage, Claude call, download, retry and error with timestamps). See the research details: candidates, selection and which full texts were downloaded. Cancel, resume after an error, re-generate from a stage, or delete. |
 | Prompts | Edit the prompt blocks with preview and syntax check, and reset them to the default. |
 | Skills | Choose which skills each stage uses. View the bundled skills; editing one creates your own copy, which you can reset later. Create new skills or import a `.zip`. |
 
@@ -114,7 +114,7 @@ The bot uses long polling, so it needs no inbound port or webhook.
 
 | Command | What it does |
 |---|---|
-| any text, or `/neu <Thema>` | Starts a new episode. Buttons for length, research depth and handout, then **▶ Starten**. |
+| any text, or `/neu <Thema>` | Starts a new episode. Buttons for length, research depth, handout, clarifying questions and language, then **▶ Starten**. If Claude has questions, the bot asks them one at a time. |
 | `/aktuell` | Live status of running or waiting jobs. While something is running, you get a **▶ Senden** button for the newest episode instead of the whole episode again. |
 | `/liste` | The last 10 episodes; tap a number to receive one. Episodes that did not finish come with a **🔁** resume button. (`/folge <Nr>` still works.) |
 | `/status` | The queue. |
@@ -157,6 +157,8 @@ docker compose exec app python -m app.cli enqueue "Neue Festkörperbatterien" --
 docker compose exec app python -m app.cli new "Neue Festkörperbatterien" \
     --length mittel          # kurz (~5 min) | mittel (~12 min) | lang (~25 min)
     --depth medium           # quick | medium | deep research
+    --language en            # de | en (default: the setting default_language)
+    --no-questions           # never ask clarifying questions before the research
     --extra "Fokus auf Anwendungen in E-Autos"
     --block "style=Etwas mehr Humor."   # append to a prompt block for this episode
     --skill mein-skill       # enable an extra skill
@@ -172,27 +174,89 @@ docker compose exec app python -m app.cli skills    # list skills
 
 | Stage | What happens | Output |
 |---|---|---|
-| research | 1. Scouts (Haiku, in parallel by angle) search and rank candidates. 2. The main model (Opus) selects papers. 3. Our code downloads the full texts (arXiv HTML → PDF → open-access PDF). 4. Opus reads every paper and writes notes | `scouts/`, `candidates.json`, `selection.json`, `papers/`, `research.md`, `sources.json` |
+| research | 0. **Clarifying questions** (see below). 1. **Plan:** Opus writes a research brief (focus, key questions) and one task per scout. 2. **Scouts** (Haiku, in parallel) search and rank candidates. 3. **Selection:** Opus ranks the sources to read. 4. Our code **downloads and measures** the full texts (arXiv HTML → PDF → open-access PDF). 5. A **reading budget** decides from the measured lengths how many papers are read, and which completely. 6. **Reading:** Opus reads them (completely or the key sections), cross-checks them, fills gaps with a few searches and writes the notes in English | `clarify.json`, `plan.json`, `scouts/`, `candidates.json`, `selection.json`, `papers/`, `reading.json`, `research.md`, `sources.json` |
 | script | Claude writes the dialogue from the notes and looks up details in `papers/` when needed; the result is checked (length, speakers, no formulas) and retried with feedback | `script.json` |
 | handout (optional) | Claude writes the handout body in **LaTeX**, with properly typeset formulas, tables and a glossary, plus matplotlib code for 1–3 figures. Our code renders the figures as vector PDFs in a sandbox and compiles the document with **pdflatex** under a fixed preamble. If compilation fails, Claude gets the error log and up to two repair rounds. Everything the script points to ("steht im Handout") is included | `handout/` (incl. `handout.tex`), `handout.pdf` |
 | tts | **Gemini** multi-speaker TTS (one request per chapter, both voices in one natural take) when `GEMINI_API_KEY` is set. When its free quota runs out, it switches to **Edge TTS** for the whole episode, so voices are never mixed. Without a key it uses Edge TTS: one clip per line, free, no key. Finished clips are reused on resume. | `clips/` |
 | audio | Clips joined with pauses, optional intro/outro, loudness normalized to -16 LUFS, MP3 with ID3 tags and chapters | `episode.mp3`, `episode.json` |
 
-Research depth sets the number of scouts and papers:
+**Clarifying questions.** Before the research starts, the main model looks at the
+topic (with up to 3 quick web searches) and decides whether it is clear. If it is not
+(an ambiguous name, a very broad topic, several candidate core papers, unclear
+audience), it asks **up to 10 questions**, each with 2–5 premade answers and, where it
+makes sense, a free-text answer. The episode then pauses with status **Rückfragen**:
+- **Web UI:** the episode page shows the questions as a form. "Ohne Antworten weiter"
+  lets Claude decide on its own.
+- **Telegram:** the bot asks the questions one at a time with answer buttons; type a
+  message to answer in your own words. "Überspringen" leaves a question to Claude.
+- **CLI (`new`, `resume`):** the questions are asked in the terminal.
 
-| Depth | Scouts | Angles | Papers read in full |
-|---|---|---|---|
-| `quick` | 1 | overview | 3 |
-| `medium` | 3 | background, core results, critique | 6 |
-| `deep` | 5 | the above plus citation network and recent work | 10 |
+The answers go into every later Claude call (scouts, selection, reading, script) and
+are shown on the episode page. A clear topic gets no questions. Switch this off per
+episode with "Rückfragen erlauben" (web), the ❓ button (Telegram) or
+`--no-questions` (CLI). Everything is stored in `clarify.json`.
 
-If a download fails, the main model falls back to `WebFetch` for that paper.
+Research depth sets the effort (`PROFILES` in `app/pipeline/research.py`):
+
+| Depth | Scouts (the plan picks) | Searches per scout | Sources ranked | Papers read at most | Reading budget |
+|---|---|---|---|---|---|
+| `quick` | 1–2 | 5 | 4 | 3 | ~45k tokens |
+| `medium` | 2–4 | 5 | 7 | 5 | ~90k tokens |
+| `deep` | 3–6 | 7 | 10 | 7 | ~130k tokens |
+
+**Main text first, and nothing is cut silently.** Every downloaded paper is split into
+its main text (`papers/<id>.md`) and, if it has one, its appendix
+(`papers/<id>.appendix.md`); the reference list is removed. The length cap
+(`paper_max_chars`) applies to the main text alone, so the main part almost always
+fits completely. Only if the main text itself is longer is it cut, at a paragraph
+break, with a visible `[… TRUNCATED …]` marker. Whatever an agent does not get is
+stated in three places:
+- at the top of the file itself;
+- in the research prompt, as "Coverage" for each paper;
+- in the script and handout prompts, together with whether the research read the
+  paper completely or only its key sections.
+
+The research notes also mark sources that were read only selectively or whose
+main text was cut. The episode page shows "Hauptteil gekürzt", "Anhang separat" and
+"Literaturliste entfernt" per paper.
+
+**How many papers are read depends on their length.** After the download, every main
+text is measured (about 4 characters per token; a typical paper is 8k–15k tokens, long ones
+are capped at 35k by `paper_max_chars`). In the order the selection ranked them:
+- the first paper (the core paper) is always read completely;
+- the next ones are read completely while the budget lasts;
+- a paper too long for the rest of the budget is read selectively (abstract,
+  introduction, method, results, conclusion; about a fifth plus 8k tokens);
+- a source without full text costs about 4k tokens (targeted WebFetch questions);
+- everything after that, or beyond the paper limit, is not read.
+
+So a topic with short papers gets more of them; one with long papers gets fewer.
+The episode page shows the length and reading mode of every paper under
+"So wurde recherchiert", together with the plan.
+
+**Why this design.** It follows how established deep-research systems work:
+- Anthropic's [multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system):
+  - a lead agent plans first and gives each subagent a self-contained task (objective,
+    where to start, what is out of scope);
+  - effort scales with how complex the topic is;
+  - searches start broad and then narrow;
+  - subagents write their results to files and pass back only short references.
+- OpenAI and Gemini deep research: clarifying questions, then a written research plan.
+- [STORM](https://arxiv.org/abs/2402.14207): research from several distinct perspectives,
+  here one per scout.
+- [PaperQA2](https://github.com/Future-House/paper-qa): citation traversal (a scout
+  perspective for deep research).
+
+One model reads all selected papers in a single context. The reading budget keeps
+the papers, the prompt and the notes together inside Claude's context window, so
+nothing read early gets compacted away.
 
 `research.md` is the handover to the script step:
 - Every claim is cited with a pointer into the full text, e.g.
   `[Gu 2023, papers/arxiv_2312.00752.md:210-245]`.
-- A section **Material für den Podcast** collects examples, analogies, surprising
+- A section **Podcast material** collects examples, analogies, surprising
   findings and quotes.
+- The notes are in English; the script agent writes the episode in the chosen language.
 - The script agent reads the notes and opens the cited passages when it needs
   depth or checks facts.
 
@@ -204,18 +268,28 @@ the script's final title replaces it.
 **Errors:** a failed episode shows a short summary of the cause, e.g. "Claude konnte
 sich nicht anmelden …" or "alle 3 Scouts …". Under "Technische Details" you find the
 original error text, Claude Code's last output lines and the full stack trace. `log.jsonl` records timings,
-Claude cost and turns, and which skills Claude actually used.
+progress messages, Claude cost, turns and tokens, and which skills Claude actually used;
+the episode page shows it as the process log.
 
 ## Customizing
 
 **Prompt blocks.** Copy a file from `app/prompts/defaults/` to `/data/prompts/`
 and edit it. Blocks are Jinja2 templates with `{{ host_name }}`, `{{ expert_name }}`,
 `{{ podcast_name }}`, `{{ minutes }}`, `{{ target_words }}` and
-`{{ research_depth }}` available.
+`{{ research_depth }}`, `{{ handout }}`, `{{ language }}` (`de`/`en`) and
+`{{ language_name }}` (`German`/`English`) available.
+
+**Language.** All prompts, prompt blocks and skills that Claude sees are in English.
+Research notes, the selection focus and reasons are written in English. Everything
+listeners hear or read (title, show notes, chapters, dialogue, handout) is written in
+the language chosen for the episode. German and English episodes use their own Edge
+voices (Einstellungen → Stimmen); Gemini voices speak both. Prompt blocks you
+customized before this change stay as you wrote them; use "Zurücksetzen" on the
+Prompts page to get the new English defaults.
 
 | Block | Controls |
 |---|---|
-| `system` | Global rules: German, no invented numbers, citing sources |
+| `system` | Global rules: episode language, no invented numbers, citing sources |
 | `personas` | Host and expert |
 | `style` | Tone, audience, humor |
 | `structure` | Episode outline and target length |
@@ -228,7 +302,7 @@ and edit it. Blocks are Jinja2 templates with `{{ host_name }}`, `{{ expert_name
 | Skill | Content |
 |---|---|
 | `paper-research` | arXiv, Semantic Scholar and OpenAlex APIs |
-| `german-podcast-dialogue` | Natural spoken German dialogue |
+| `podcast-dialogue` | Natural spoken dialogue, German or English (formerly `german-podcast-dialogue`; old names in `skills.json` keep working) |
 | `tts-friendly-text` | Writing text that TTS pronounces correctly |
 | `fact-check` | Checking the script against the research |
 | `handout-plots` | Plot style guide for the handout |
@@ -248,7 +322,7 @@ and edit it. Blocks are Jinja2 templates with `{{ host_name }}`, `{{ expert_name
 
 ## Security notes
 
-- Claude gets no `Bash` tool. Research uses only WebSearch, WebFetch and Read;
+- Claude gets no `Bash` tool. Research uses only WebSearch, WebFetch, Read and Grep;
   scripting uses only Read.
 - Handout plot code comes from Claude and is treated as untrusted:
   - An allow-list check before it runs: only `matplotlib`, `numpy` and `math`; no file,

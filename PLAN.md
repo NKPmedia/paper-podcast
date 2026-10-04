@@ -16,7 +16,7 @@ Status: **all milestones implemented** (email and REST API dropped on request) �
 |---|---|
 | Claude auth | Subscription token (`claude setup-token` → `CLAUDE_CODE_OAUTH_TOKEN`), personal use |
 | Claude runtime | Claude Agent SDK for Python (bundles the Claude Code CLI) |
-| Language | German |
+| Language | German or English per episode; all prompts and skills for Claude in English |
 | Input | Free-text topic description (may mention papers, authors, arXiv IDs, URLs) |
 | Research | Always runs first; depth `quick` / `medium` (default) / `deep` per request. Parallel Haiku scouts return a ranked shortlist, Opus picks papers, our code downloads the full texts, and Opus reads all of them |
 | Length | Per request: `kurz` (~5 min), `mittel` (~12 min), `lang` (~25 min) |
@@ -103,59 +103,60 @@ episode.mp3       final audio (ID3 tags + chapters + cover)
 log.jsonl         stage timings, Claude cost/turns, errors
 ```
 
-### Stage 1 — Research: scouts → selection → full-text reading
+### Stage 1 — Research: plan → scouts → selection → measured reading → synthesis
 
-Modelled on Anthropic's multi-agent research system (strong lead model, cheaper
-parallel workers, start wide then narrow) and PaperQA2 (cheap models search, the
-strong model answers). Our Python code orchestrates the steps, not an LLM, so they
-are deterministic, testable and resumable.
+Modelled on established deep-research systems:
+- Anthropic's multi-agent research system: a lead model plans and delegates
+  self-contained tasks to cheaper parallel workers, effort scales with complexity,
+  searches start wide then narrow, and workers write results to files.
+- OpenAI and Gemini deep research: clarifying questions, then a research plan.
+- STORM: perspective-guided research.
+- PaperQA2: citation traversal.
 
-**1a. Scouts** (default model **Haiku**; selectable)
-- Each scout is a separate Agent SDK call. They run in parallel, using `WebSearch`,
-  `WebFetch` and the `paper-research` skill (arXiv, Semantic Scholar, OpenAlex).
-- The number of scouts scales with research depth:
+Our Python code orchestrates the steps, not an LLM, so they are deterministic,
+testable and resumable.
 
-  | Depth | Scouts | Angles |
-  |---|---|---|
-  | `quick` | 1 | broad |
-  | `medium` | 3 | background and prior work · method and results · critique, follow-ups and applications |
-  | `deep` | 5 | the above plus citation traversal (who cites the core paper, what it builds on) and recent developments |
+**0. Clarifying questions** (main model, a few web searches)
+- If the topic is ambiguous or too broad, the job pauses (status `waiting`) with up to
+  10 questions, each with premade answers and optional free text. Answers come from
+  the web UI, Telegram or the CLI and are passed to every later Claude call.
 
-- Each scout searches broadly first and then narrows down.
-- It **ranks rather than filters**. It returns 10–20 candidates as structured
-  output: arXiv ID or DOI, title, authors, year, URL, a relevance score from 0 to
-  10, a one-line reason and a verbatim quote from the abstract.
-- Scouts take metadata (authors, year) from the APIs, never from memory.
-- Our code merges the candidates, deduplicates them by arXiv ID, DOI or normalized
-  title, and writes `candidates.json`, a ranked shortlist of about 20–40 entries
-  that you can inspect.
+**1. Plan** (main model, no tools) → `plan.json`
+- Focus, 3–8 key questions, and one task per scout: title, objective, where to
+  start searching, what is out of scope.
+- The number of scouts is chosen by the plan within the depth's range (`quick` 1–2,
+  `medium` 2–4, `deep` 3–6).
 
-**1b. Selection** (main model, default **Opus**)
-- The main agent sees the shortlist and picks the papers to read (`quick` about 3,
-  `medium` about 6, `deep` about 10). It may pick from anywhere in the list, not
-  just the top.
-- Output: the selected IDs, each with a reason.
+**2. Scouts** (default **Haiku**, parallel) → `scouts/<task>.json`, `candidates.json`
+- One per task, using `WebSearch`, `WebFetch` and the `paper-research` skill (arXiv,
+  Semantic Scholar, OpenAlex), with a search budget.
+- They rank rather than filter: candidates with IDs, metadata from the APIs, a 0–10
+  score, a reason and a verbatim quote.
+- Merged and deduplicated by arXiv ID, DOI or title; capped at 30.
 
-**1c. Full-text download** (our code, no LLM)
-- For each selected paper, fetch the arXiv HTML version (`arxiv.org/html/<id>`,
-  which keeps structure and maths) and convert it to Markdown.
-- Fallback: the PDF, converted to text with PyMuPDF. Other URLs: the open-access
-  PDF from Semantic Scholar or OpenAlex.
-- Saved as `papers/<id>.md` along with `papers/index.json`; failures are recorded
-  there.
+**3. Selection** (main model) → `selection.json`
+- Ranks up to 4/7/10 sources in order of how indispensable they are. The prompt
+  explains the reading budget, so the core paper goes first.
 
-**1d. Deep reading and notes** (main model; a fresh call that is given the selection and its reasons, which keeps it resumable)
-- The main agent `Read`s **every** downloaded paper in full from the job
-  directory. These are local files, so there is no WebFetch summarization and the
-  text arrives unaltered.
-- It may also use `WebSearch` and `WebFetch` for anything still missing.
-- Claude Code compacts the context on its own if it grows large. Very long papers
-  are read in sections.
-- Output: `research.md` plus `sources.json` (structured output).
-  - Every claim in the notes carries a pointer into the full text, e.g.
-    `[Gu 2023, papers/arxiv_2312.00752.md:210-245]`.
-  - A required section **Material für den Podcast** holds examples, analogies,
-    surprising results, anecdotes and quotes.
+**4. Download** (our code) → `papers/*.md`, `papers/index.json`
+- arXiv HTML → PDF → open-access PDF via OpenAlex, converted to Markdown, capped at
+  150k characters.
+
+**5. Reading budget** (our code) → `reading.json`
+- Every paper is measured (characters / 4 ≈ tokens).
+- In ranked order:
+  - the first paper is read completely;
+  - the next ones completely while the budget (45k / 90k / 130k tokens) lasts;
+  - a paper too long for the rest is read selectively;
+  - a source without full text is read with a few WebFetch questions;
+  - the rest are skipped; at most 3/5/7 papers are read.
+- The budget keeps everything inside one context window.
+
+**6. Reading and notes** (main model) → `research.md`, `sources.json`
+- Greps each paper's outline, then reads it completely or selectively.
+- Cross-checks the sources and fills gaps with at most 5 searches.
+- Writes English notes organized by key question, with a `[Tag, file:lines]`
+  reference on every claim, plus the podcast material.
 
 **Handover to the script step.**
 - Research and script stay separate calls: this keeps the script context small,
@@ -166,8 +167,9 @@ are deterministic, testable and resumable.
   If a note and the paper disagree, the paper wins.
 
 **Configuration** (settings, later also editable in the web UI):
-- `RESEARCH_SCOUT_MODEL=haiku`, `RESEARCH_MAIN_MODEL=opus`, `SCRIPT_MODEL=opus`.
-- Scout count, candidates per scout and papers to read, set per depth.
+- Scout model `haiku`, main model `opus`, script model `opus`.
+- Scout range, searches, shortlist size, paper limit and reading budget per depth
+  (`PROFILES`).
 - `max_turns` per role.
 
 **Logging:** `log.jsonl` records cost, turns and model for each call and role.
@@ -281,8 +283,8 @@ Prompt blocks and skills do different jobs:
 | Skill | Used in | Content |
 |---|---|---|
 | `paper-research` | research | Using the arXiv API, Semantic Scholar API and OpenAlex through WebFetch (endpoints and query syntax in `reference/`); finding the original paper, citations and follow-ups; judging source quality |
-| `german-podcast-dialogue` | script | Spoken German style: how to phrase questions, fillers used sparingly, analogies, how to handle du/Sie, bad and good examples |
-| `tts-friendly-text` | script | Rules and lexicon (`reference/aussprache.md`) for numbers, units, formulas, English terms and abbreviations as they should be spoken by Edge or Gemini |
+| `podcast-dialogue` | script | Spoken dialogue style (German or English): how to phrase questions, fillers used sparingly, analogies, how to handle du/Sie, bad and good examples |
+| `tts-friendly-text` | script | Rules and lexicon (`reference/pronunciation.md`) for numbers, units, formulas, English terms and abbreviations as they should be spoken by Edge or Gemini |
 | `fact-check` | script (review) | Checklist to verify each claim and number in the script against `research.md` / `sources.json` |
 | `handout-plots` | handout | matplotlib style guide (fonts, colors, sizes for A4), plot types per content (timeline, comparison, bar, schematic), labelling when data is approximate |
 | `digest-ranking` | *(later)* digest | How to score new papers against your interests |

@@ -28,9 +28,11 @@ BUNDLED_DIR = APP_DIR / "skills"
 
 DEFAULT_STAGE_SKILLS: dict[str, list[str]] = {
     "research": ["paper-research"],
-    "script": ["german-podcast-dialogue", "tts-friendly-text", "fact-check"],
+    "script": ["podcast-dialogue", "tts-friendly-text", "fact-check"],
     "handout": ["latex-handout", "handout-plots"],
 }
+# Bundled skills that were renamed: old name -> new name (keeps saved stage configs working).
+RENAMED = {"german-podcast-dialogue": "podcast-dialogue"}
 
 STAGES = tuple(DEFAULT_STAGE_SKILLS)
 NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
@@ -92,9 +94,14 @@ class SkillStore:
         return skills
 
     def _config(self) -> dict:
-        if self.config_file.exists():
-            return json.loads(self.config_file.read_text(encoding="utf-8"))
-        return {}
+        if not self.config_file.exists():
+            return {}
+        data = json.loads(self.config_file.read_text(encoding="utf-8"))
+        user = self._scan(self.user_dir)
+        for stage, names in data.get("stages", {}).items():
+            renamed = [RENAMED[n] if n in RENAMED and n not in user else n for n in names]
+            data["stages"][stage] = list(dict.fromkeys(renamed))
+        return data
 
     def stage_skills(self, stage: str, extra: list[str] | None = None) -> list[str]:
         configured = self._config().get("stages", {}).get(stage)
@@ -154,9 +161,9 @@ class SkillStore:
         if name in self.all():
             raise SkillError(f"Skill {name} existiert bereits")
         path.mkdir(parents=True)
-        description = " ".join(description.split()) or "Beschreibe, wann Claude diesen Skill nutzen soll."
+        description = " ".join(description.split()) or "Describe when Claude should use this skill."
         (path / "SKILL.md").write_text(
-            f"---\nname: {name}\ndescription: {description}\n---\n\n# {name}\n\nAnleitung für Claude …\n",
+            f"---\nname: {name}\ndescription: {description}\n---\n\n# {name}\n\nInstructions for Claude …\n",
             encoding="utf-8",
         )
         return path

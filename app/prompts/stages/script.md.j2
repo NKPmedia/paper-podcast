@@ -1,48 +1,57 @@
 {{ blocks.personas }}
 
-# Stil
+# Style
 
 {{ blocks.style }}
 
-# Aufbau
+# Structure
 
 {{ blocks.structure }}
 
-# Regeln für den gesprochenen Text
+# Rules for the spoken text
 
 {{ blocks.script_rules }}
 {% if extra_instructions %}
-# Zusätzliche Wünsche
+# Additional requests
 
 {{ extra_instructions }}
 {% endif %}
-# Thema
+{% if clarifications | default("") %}# Answers from the listener
+
+Before the research, the listener answered these questions. Follow them; they define what the episode is about.
+
+{{ clarifications }}
+
+{% endif %}# Topic
 
 {{ topic }}
 
-# Recherche-Notizen
+# Research notes
 
 {{ notes }}
 
-# Quellen
+# Sources
 
 {% for s in sources %}- [{{ loop.index }}] {{ s.title }}{% if s.authors %} — {{ s.authors }}{% endif %}{% if s.year %} ({{ s.year }}){% endif %}
 {% endfor %}{% if papers %}
-# Volltexte zum Nachschlagen
+# Full texts for reference
 
-Die Notizen sind deine Hauptgrundlage. Die Volltexte der wichtigsten Paper liegen zusätzlich im Arbeitsverzeichnis:
+The notes are your main basis. The full texts of the key papers are also in the working directory:
+Each file holds a paper's main text (reference lists removed); an appendix, if any, is in its own file. Where a note says a text was cut or only partly read during the research, do not make claims about the missing parts without checking them.
 
-{% for p in papers %}- `{{ p.file }}`: {{ p.title }} ({{ p.lines }} Zeilen)
+
+{% for p in papers %}- `{{ p.file }}`: {{ p.title }} ({{ p.lines }} lines){% if p.note %}
+  {{ p.note }}{% endif %}
 {% endfor %}
-Schlage darin mit dem Read-Tool gezielt nach, statt Details zu erfinden: wenn ein Kapitel mehr Tiefe braucht, wenn du ein konkretes Beispiel oder eine Zahl genauer wissen willst, oder beim Faktencheck. Die Fundstellen in den Notizen (z.B. `papers/….md:210-245`) sagen dir, wo du lesen musst; nutze `offset` und `limit`, statt ganze Dateien zu lesen.
+Look things up there with the Read tool instead of inventing details: when a chapter needs more depth, when you want a concrete example or number more precisely, or while fact-checking. The locations in the notes (e.g. `papers/….md:210-245`) tell you where to read; use `offset` and `limit` instead of reading whole files.
 {% endif %}
-# Dein Auftrag
+# Your task
 
-Schreibe das vollständige Podcast-Skript.
+Write the complete podcast script. **The research notes are in English; the script (title, summary, chapter titles, every spoken line{% if handout %}, `handout_items`{% endif %}) must be entirely in {{ language_name }}.**
 
-1. Plane zuerst die Kapitel und was in jedem Kapitel vermittelt werden soll.
-2. Schreibe dann den Dialog. Nutze die Skills `german-podcast-dialogue` und `tts-friendly-text`. Baue das „Material für den Podcast“ aus den Notizen ein: Beispiele, Analogien und überraschende Fakten machen das Gespräch lebendig.
-3. Prüfe das Ergebnis mit dem Skill `fact-check` gegen die Recherche-Notizen{% if papers %} und die Volltexte{% endif %} und korrigiere es, bevor du antwortest.
+1. First plan the chapters and what each one should convey.
+2. Then write the dialogue, using the skills `podcast-dialogue` and `tts-friendly-text`. Weave in the "Podcast material" from the notes: examples, analogies and surprising facts make the conversation come alive.
+3. Check the result against the research notes{% if papers %} and the full texts{% endif %} with the `fact-check` skill and fix it before you answer.
 
-Die Länge ist wichtig: etwa {{ target_words }} Wörter gesprochener Text insgesamt.
-Sprecher-IDs: `host` = {{ host_name }}, `expert` = {{ expert_name }}.
+Length matters: about {{ target_words }} words of spoken text in total.
+Speaker IDs: `host` = {{ host_name }}, `expert` = {{ expert_name }}.

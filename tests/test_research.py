@@ -114,7 +114,7 @@ async def test_arxiv_html_preferred(tmp_path):
     paper = await download(ranked(id="arxiv:2401.00001", arxiv_id="2401.00001"), routes, out=tmp_path)
     assert paper.format == "html" and paper.file == "papers/arxiv_2401.00001.md" and not paper.error
     text = (tmp_path / "arxiv_2401.00001.md").read_text()
-    assert text.startswith("# Ein Paper\n\nQuelle: https://arxiv.org/html/2401.00001")
+    assert text.startswith("# Ein Paper\n\nSource: https://arxiv.org/html/2401.00001")
     assert paper.lines == text.count("\n")
 
 
@@ -146,7 +146,9 @@ async def test_doi_via_openalex_and_truncation(tmp_path):
     }
     paper = await download(ranked(id="doi:10.1/x", doi="10.1/x"), routes, out=tmp_path, max_chars=3000)
     assert paper.source_url == "https://oa.example.org/x" and paper.truncated
-    assert "[… gekürzt …]" in (tmp_path / "doi_10.1_x.md").read_text()
+    text = (tmp_path / "doi_10.1_x.md").read_text()
+    assert "TRUNCATED: the last" in text and "> Note: this file holds the main text" in text
+    assert "The main text was cut" in text and paper.omitted_chars > 0
 
 
 async def test_size_limit(tmp_path):
@@ -174,7 +176,7 @@ async def test_medium_research_flow(settings):
     responses = default_responses()
 
     def scout(call):
-        if "Replikationen, Grenzen, Gegenpositionen" in call.prompt:
+        if "Replications, limitations, opposing views" in call.prompt:
             raise RuntimeError("scout crashed")
         return {"candidates": [{"title": "Ein Paper", "arxiv_id": "2401.00001", "score": 9, "reason": "Kern"},
                                {"title": "Blogpost", "url": "https://blog.example.org/p", "score": 3, "reason": "B"}]}
@@ -191,27 +193,61 @@ async def test_medium_research_flow(settings):
     notes = []
     await run_pipeline(ctx, progress=lambda stage, msg: notes.append(msg))
 
+    (plan_call,) = claude.calls_for("ResearchPlan")
+    assert "between 2 and 4 scout tasks" in plan_call.prompt and plan_call.model == "opus"
+    assert json.loads((job_dir / "plan.json").read_text())["key_questions"][0] == "Was zeigt das Paper?"
+
     scouts = claude.calls_for("ScoutResult")
     assert len(scouts) == 3 and all(c.model == "haiku" for c in scouts)
-    assert sorted(p.name for p in (job_dir / "scouts").iterdir()) == ["background.json", "core.json"]
+    assert "# Your task: Core work" in scouts[0].prompt and "Was zeigt das Paper?" in scouts[0].prompt
+    assert sorted(p.name for p in (job_dir / "scouts").iterdir()) == ["t1.json", "t2.json"]
     log = [json.loads(line) for line in (job_dir / "log.jsonl").read_text().splitlines()]
-    assert any(e["event"] == "scout_failed" and e["angle"] == "critique" for e in log)
+    assert any(e["event"] == "scout_failed" and e["angle"] == "Critique" for e in log)
 
     candidates = json.loads((job_dir / "candidates.json").read_text())
     assert [c["id"] for c in candidates] == ["arxiv:2401.00001", "title:blogpost"]
-    assert candidates[0]["found_by"] == ["background", "core"]
+    assert candidates[0]["found_by"] == ["t1", "t2"]
 
     selection = json.loads((job_dir / "selection.json").read_text())
     assert [s["id"] for s in selection["selected"]] == ["arxiv:2401.00001", "title:blogpost"]
+    (select_call,) = claude.calls_for("Selection")
+    assert "reading budget of about 90k tokens" in select_call.prompt
 
     index = json.loads((job_dir / "papers/index.json").read_text())
     assert index[0]["file"] and not index[1]["file"] and "HTTP 404" in index[1]["error"]
+    reading = json.loads((job_dir / "reading.json").read_text())
+    assert [e["mode"] for e in reading] == ["full", "webfetch"] and reading[0]["tokens"] > 0
 
-    (read,) = claude.calls_for("ResearchResult")
-    assert read.model == "opus" and read.tools == ["Read", "WebSearch", "WebFetch"]
-    assert "papers/arxiv_2401.00001.md" in read.prompt
-    assert "Nutze WebFetch mit gezielten Fragen: https://blog.example.org/p" in read.prompt
-    assert any("Scout" in n for n in notes) and any("liest 2 Paper (1 im Volltext, 1 per WebFetch)" in n for n in notes)
+    (read,) = claude.calls_for("ResearchResult")  # one model reads everything, no reader agents
+    assert read.model == "opus" and read.tools == ["Read", "Grep", "WebSearch", "WebFetch"]
+    assert "papers/arxiv_2401.00001.md" in read.prompt and "Reading depth: **complete**" in read.prompt
+    assert "Use WebFetch with specific questions (at most 4 fetches): https://blog.example.org/p" in read.prompt
+    assert "Cross-check" in read.prompt and "Cite with location" in read.prompt
+    assert any("Scout" in n for n in notes) and any("Claude liest 2 Paper (1 komplett" in n for n in notes)
+
+
+def test_reading_budget_uses_measured_lengths():
+    from app.pipeline.research import PROFILES, plan_reading, selective_tokens
+
+    profile = PROFILES[ResearchDepth.medium]  # 90k budget, at most 5 papers
+    papers = [
+        {"id": "a", "file": "papers/a.md", "tokens": 30_000},  # core: always complete
+        {"id": "b", "file": "papers/b.md", "tokens": 12_000},
+        {"id": "c", "file": "", "tokens": 0},  # no full text: WebFetch
+        {"id": "d", "file": "papers/d.md", "tokens": 20_000},
+        {"id": "e", "file": "papers/e.md", "tokens": 35_000},  # too long for the rest: selective
+        {"id": "f", "file": "papers/f.md", "tokens": 9_000},  # over the paper limit
+    ]
+    reading = plan_reading(papers, profile)
+    assert [e["mode"] for e in reading] == ["full", "full", "webfetch", "full", "selective", "skipped"]
+    assert sum(e["cost"] for e in reading) == 30_000 + 12_000 + 4_000 + 20_000 + selective_tokens(35_000)
+    assert sum(e["cost"] for e in reading) <= profile.read_budget
+    assert "Höchstzahl" in reading[-1]["reason"]
+
+    # A huge core paper is still read completely; nothing else fits after it.
+    many = [{"id": str(i), "file": f"papers/{i}.md", "tokens": 70_000 if i == 0 else 8_000} for i in range(7)]
+    quick = plan_reading(many, PROFILES[ResearchDepth.quick])  # 45k budget, 3 papers
+    assert quick[0]["mode"] == "full" and all(e["mode"] == "skipped" for e in quick[1:])
 
 
 async def test_research_resumes_and_resets(settings):
@@ -224,13 +260,15 @@ async def test_research_resumes_and_resets(settings):
     (job_dir / "research.md").unlink()
     claude.responses["ResearchResult"] = [default_responses()["ResearchResult"][0]]
     await run_pipeline(ctx)
-    assert len(claude.calls_for("ScoutResult")) == 1 and len(claude.calls_for("ResearchResult")) == 2
+    assert len(claude.calls_for("ScoutResult")) == 2 and len(claude.calls_for("ResearchResult")) == 2
+    assert len(claude.calls_for("ResearchPlan")) == 1  # the plan is reused on resume
 
     # Forcing the research stage starts from scratch.
     fresh = default_responses()
     claude.responses.update({k: fresh[k] for k in ("ScoutResult", "Selection", "ResearchResult", "Script")})
     await run_pipeline(ctx, from_stage="research")
-    assert len(claude.calls_for("ScoutResult")) == 2 and len(claude.calls_for("Selection")) == 2
+    assert len(claude.calls_for("ScoutResult")) == 4 and len(claude.calls_for("Selection")) == 2
+    assert len(claude.calls_for("ResearchPlan")) == 2
 
 
 async def test_all_scouts_failing_is_an_error(settings):
@@ -295,3 +333,104 @@ async def test_title_is_set_as_soon_as_research_names_it(settings):
     ctx.on_title = titles.append
     await run_pipeline(ctx)
     assert titles == ["Testthema", "Testepisode"]  # research title first, then the script's
+
+
+def test_short_papers_fill_the_budget():
+    from app.pipeline.research import PROFILES, plan_reading
+
+    short = [{"id": str(i), "file": f"papers/{i}.md", "tokens": 9_000} for i in range(10)]
+    deep = plan_reading(short, PROFILES[ResearchDepth.deep])  # 130k budget, at most 7 papers
+    assert [e["mode"] for e in deep].count("full") == 7  # short papers: the paper limit applies first
+    long = [{"id": str(i), "file": f"papers/{i}.md", "tokens": 35_000} for i in range(10)]
+    modes = [e["mode"] for e in plan_reading(long, PROFILES[ResearchDepth.deep])]
+    assert modes.count("full") == 3 and modes.count("selective") == 1  # long papers: the budget applies first
+
+
+# --- main text, references, appendix ---------------------------------------------
+
+
+def test_split_paper_drops_references_and_keeps_appendix_separate():
+    from app.papers import split_paper
+
+    body = "## 1 Introduction\n\n" + "Main text. " * 300 + "\n\n## 6 Conclusion\n\nWe conclude.\n\n"
+    main, appendix, refs = split_paper(body + "## References\n\n[1] A. 2020.\n\n## A Proofs\n\nProof.\n")
+    assert main.endswith("We conclude.") and appendix.startswith("## A Proofs") and refs
+    main, appendix, refs = split_paper(body + "## Appendix A Details\n\nX\n\n## References\n\n[1] Z")
+    assert main.endswith("We conclude.") and appendix == "## Appendix A Details\n\nX" and refs
+    # PDF text: plain paragraphs; a sentence that mentions the appendix is not a heading.
+    pdf = "Body. " * 300 + "\n\nAppendix B lists all runs.\n\nMore body.\n\nREFERENCES\n\n[1] Foo."
+    main, appendix, refs = split_paper(pdf)
+    assert main.endswith("More body.") and appendix == "" and refs
+    toc = "Contents\n\nReferences\n\n" + "Body. " * 300  # an early 'References' is a table of contents
+    assert split_paper(toc) == (toc.rstrip(), "", False)
+
+
+async def test_long_paper_keeps_main_text_and_moves_appendix(tmp_path):
+    from app.papers import PaperFile, coverage_note, save_paper
+    from dataclasses import asdict
+
+    text = ("## 1 Intro\n\n" + "Main. " * 2000 + "\n\n## References\n\n" + "[1] Ref.\n\n" * 500
+            + "## A Extra results\n\n" + "Appendix. " * 300)
+    paper = PaperFile(id="arxiv:1", title="T")
+    save_paper(paper, "T", text, "https://x.org", tmp_path, max_chars=50_000)
+    main = (tmp_path / "arxiv_1.md").read_text()
+    assert not paper.truncated and "[1] Ref." not in main and "Appendix." not in main  # main part complete
+    assert paper.appendix_file == "papers/arxiv_1.appendix.md" and paper.references_removed
+    assert "The appendix is in a separate file `papers/arxiv_1.appendix.md`" in main
+    assert "Appendix." in (tmp_path / "arxiv_1.appendix.md").read_text()
+
+    short = PaperFile(id="arxiv:2", title="T")
+    save_paper(short, "T", "## 1 Intro\n\n" + "Main text here. " * 3000, "https://x.org", tmp_path, max_chars=20_000)
+    assert short.truncated and short.omitted_chars > 0
+    assert "TRUNCATED" in (tmp_path / "arxiv_2.md").read_text()
+    note = coverage_note(asdict(short), "selective")
+    assert "main text was cut" in note and "only its key sections were read" in note
+
+
+async def test_later_agents_are_told_what_they_do_not_see(settings):
+    long_html = ARXIV_HTML.replace("</article>", "<section class='ltx_appendix'><h2>Appendix A Extra</h2>"
+                                   "<p>" + "Appendix text. " * 200 + "</p></section></article>")
+    routes = {"https://arxiv.org/html/2401.00001": (200, "text/html", long_html.encode())}
+    claude = FakeClaude(default_responses())
+    job_dir = job(settings, ResearchDepth.quick)
+    await run_pipeline(ctx_for(settings, job_dir, claude, routes=routes))
+    index = json.loads((job_dir / "papers/index.json").read_text())
+    assert index[0]["appendix_file"] == "papers/arxiv_2401.00001.appendix.md"
+    (read,) = claude.calls_for("ResearchResult")
+    assert "Coverage: The appendix is in a separate file `papers/arxiv_2401.00001.appendix.md`" in read.prompt
+    assert "Say what you did not read" in read.prompt
+    (script,) = claude.calls_for("Script")
+    assert "papers/arxiv_2401.00001.appendix.md" in script.prompt
+    assert "During the research its complete main text was read." in script.prompt
+
+
+async def test_plan_with_too_few_scouts_is_retried_then_filled(settings):
+    from tests.conftest import PLAN
+
+    one_task = {**PLAN, "tasks": PLAN["tasks"][:1]}
+    responses = default_responses()
+    responses["ResearchPlan"] = [one_task, one_task]  # asked twice, still one task
+    responses["ScoutResult"] = [default_responses()["ScoutResult"][0]] * 5
+    claude = FakeClaude(responses)
+    job_dir = job(settings, ResearchDepth.deep)  # needs at least 3 scouts
+    await run_pipeline(ctx_for(settings, job_dir, claude))
+    retry = claude.calls_for("ResearchPlan")[1]
+    assert retry.resume and "needs between 3 and 6" in retry.prompt
+    plan = json.loads((job_dir / "plan.json").read_text())
+    assert [t["title"] for t in plan["tasks"]] == ["Core work", "Critique and replications", "Foundations"]
+    assert len(claude.calls_for("ScoutResult")) == 3
+
+
+async def test_plan_with_too_few_key_questions_is_retried_then_filled(settings):
+    from tests.conftest import PLAN
+
+    thin = {**PLAN, "key_questions": ["Was zeigt das Paper?"]}
+    responses = default_responses()
+    responses["ResearchPlan"] = [thin, thin]
+    claude = FakeClaude(responses)
+    job_dir = job(settings, ResearchDepth.quick)
+    await run_pipeline(ctx_for(settings, job_dir, claude))
+    retry = claude.calls_for("ResearchPlan")[1]
+    assert retry.resume and "1 key question(s); it needs 3 to 8" in retry.prompt
+    questions = json.loads((job_dir / "plan.json").read_text())["key_questions"]
+    assert questions[0] == "Was zeigt das Paper?" and len(questions) == 3

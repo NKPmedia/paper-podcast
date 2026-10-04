@@ -30,7 +30,10 @@ from app.config import Settings, ensure_secrets, get_settings
 from app.errors import split_error
 from app.db import JobStore
 from app.jobs import ContextFactory, JobError, JobService, Worker
-from app.models import EpisodeOptions, EpisodeRequest, Length, ResearchDepth
+from app.episode_log import call_tokens, fmt_tokens, read_log, timeline, token_totals
+from app.models import EpisodeOptions, EpisodeRequest, Language, Length, ResearchDepth
+from app.pipeline import clarify
+from app.pipeline.research import PROFILES, depth_hint
 from app.pipeline import STAGE_ARTIFACTS, prompt_context, slugify, stages_for
 from app.prompts import BLOCK_DESCRIPTIONS, PromptStore
 from app.skills import STAGES as SKILL_STAGES
@@ -45,6 +48,7 @@ STAGE_LABELS = {"research": "Recherche", "script": "Skript", "handout": "Handout
 STATUS_LABELS = {
     "queued": "Wartet",
     "running": "Läuft",
+    "waiting": "Rückfragen",
     "done": "Fertig",
     "failed": "Fehler",
     "cancelled": "Abgebrochen",
@@ -52,10 +56,11 @@ STATUS_LABELS = {
 LENGTH_LABELS = {"kurz": "Kurz (~5 min)", "mittel": "Mittel (~12 min)", "lang": "Lang (~25 min)"}
 DEPTH_LABELS = {"quick": "Schnell", "medium": "Normal", "deep": "Gründlich"}
 DEPTH_OPTIONS = {
-    "quick": "Schnell – 1 Scout, ca. 3 Paper",
-    "medium": "Normal – 3 Scouts, ca. 6 Paper",
-    "deep": "Gründlich – 5 Scouts, ca. 10 Paper (dauert länger, verbraucht mehr Kontingent)",
+    depth.value: f"{DEPTH_LABELS[depth.value]} – {depth_hint(depth)}"
+    + (" (dauert länger, verbraucht mehr Kontingent)" if depth is ResearchDepth.deep else "")
+    for depth in ResearchDepth
 }
+LANGUAGE_LABELS = {"de": "Deutsch", "en": "Englisch"}
 BLOCK_TITLES = {
     "personas": "Sprecher", "style": "Stil", "structure": "Aufbau", "research": "Recherche",
     "script_rules": "Sprechregeln", "handout": "Handout", "system": "Grundregeln",
@@ -216,7 +221,7 @@ def create_app(
         return f"{value:.2f}".replace(".", ",") + " $" if value else ""
 
     templates.env.filters.update(time=fmt_time, duration=fmt_duration, markdown=_markdown.render, safe_url=_safe_url,
-                                 money=fmt_money, split_error=split_error)
+                                 money=fmt_money, split_error=split_error, tokens=fmt_tokens)
     templates.env.globals.update(status_labels=STATUS_LABELS, stage_labels=STAGE_LABELS, settings=settings)
 
     # --- helpers ------------------------------------------------------------------
@@ -434,7 +439,7 @@ def create_app(
         return render(
             request, "index.html",
             jobs=store.list(100),
-            lengths=LENGTH_LABELS, depths=DEPTH_OPTIONS,
+            lengths=LENGTH_LABELS, depths=DEPTH_OPTIONS, languages=LANGUAGE_LABELS,
             blocks=BLOCK_DESCRIPTIONS, block_titles=BLOCK_TITLES,
             prompt_names=[n for n in BLOCK_TITLES if n in prompts.names()],
             skills=skills.all(), stage_config=skills.stage_config(),
@@ -463,9 +468,11 @@ def create_app(
         }
         try:
             options = EpisodeOptions(
+                clarify=form.get("clarify") == "on",
                 length=Length(form.get("length", "mittel")),
                 research_depth=ResearchDepth(form.get("depth", "medium")),
                 handout=form.get("handout") == "on",
+                language=Language(form.get("language", settings.default_language)),
                 extra_instructions=str(form.get("extra", "")).strip(),
                 block_overrides=block_overrides,
                 extra_skills=[str(s) for s in form.getlist("extra_skills")],
@@ -497,10 +504,7 @@ def create_app(
         request_data = _read_json(job_dir / "request.json", {})
         job_stages = stages_for(request_data.get("request", {}).get("options", {}).get("handout", False))
         research_md = job_dir / "research.md"
-        log_entries = [
-            json.loads(line)
-            for line in (job_dir / "log.jsonl").read_text(encoding="utf-8").splitlines()
-        ] if (job_dir / "log.jsonl").exists() else []
+        log_entries = read_log(job_dir)
         return render(
             request, "episode.html",
             job=job,
@@ -516,7 +520,16 @@ def create_app(
             candidates=_read_json(job_dir / "candidates.json", []),
             selection=_read_json(job_dir / "selection.json"),
             papers=_read_json(job_dir / "papers/index.json", []),
-            claude_calls=[e for e in log_entries if e.get("event") == "claude"],
+            claude_calls=[{**e, "token_row": call_tokens(e)} for e in log_entries if e.get("event") == "claude"],
+            tokens=token_totals(log_entries),
+            timeline=timeline(log_entries, tz),
+            languages=LANGUAGE_LABELS,
+            clarification=clarify.load(job_dir),
+            plan=(plan := _read_json(job_dir / "plan.json")),
+            task_labels={f"t{i + 1}": t["title"] for i, t in enumerate((plan or {}).get("tasks", []))},
+            reading=_read_json(job_dir / "reading.json", []),
+            reading_budget_k=PROFILES[ResearchDepth(request_data.get("request", {}).get("options", {})
+                                                    .get("research_depth", "medium"))].read_budget // 1000,
             names={"host": settings.host_name, "expert": settings.expert_name},
             stage_names=job_stages,
         )
@@ -569,6 +582,24 @@ def create_app(
         await job_action(
             request, job_id, lambda form: service.retry(job_id, form.get("from_stage") or None)
         )
+        return redirect(f"/episodes/{job_id}")
+
+    @app.post("/episodes/{job_id}/answers")
+    async def answers(request: Request, job_id: str):
+        def submit(form):
+            questions = clarify.pending_questions(service.job_dir(job_id)) if store.get(job_id) else []
+            replies = []
+            for i, question in enumerate(questions):
+                text = str(form.get(f"q{i}_text", "")).strip() if question.get("allow_free_text") else ""
+                choice = str(form.get(f"q{i}", "")).strip()
+                replies.append(text or (choice if choice in question["options"] else ""))
+            if form.get("skip"):
+                replies = []
+            service.answer(job_id, replies)
+            flash(request, "Danke! Die Recherche geht mit deinen Antworten weiter." if any(replies)
+                  else "Die Recherche geht ohne Antworten weiter – Claude entscheidet selbst.")
+
+        await job_action(request, job_id, submit)
         return redirect(f"/episodes/{job_id}")
 
     @app.post("/episodes/{job_id}/delete")

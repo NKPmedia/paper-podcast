@@ -1,6 +1,6 @@
 ---
 name: latex-handout
-description: Regeln für den LaTeX-Dokumentkörper des Handouts: erlaubte Befehle und Umgebungen, Formeln, Tabellen, Abbildungen mit \plot, Sonderzeichen. Nutzen beim Schreiben oder Korrigieren des Handouts.
+description: Rules for the LaTeX document body of the handout - allowed commands and environments, formulas, tables, figures via \plot, special characters. Use when writing or fixing the handout.
 ---
 
 # LaTeX for the handout
@@ -11,7 +11,7 @@ which is inserted after the title.
 
 ## Already loaded (use freely)
 `amsmath`, `amssymb`, `graphicx`, `booktabs`, `tabularx`, `array`, `enumitem`, `xcolor`
-(color `accent`), `caption`, `float`, `hyperref`, `url`, `babel` (ngerman), `microtype`.
+(color `accent`), `caption`, `float`, `hyperref`, `url`, `babel` (the episode language: ngerman or english), `microtype`.
 
 ## Not allowed (the server rejects the document)
 - Any preamble material: `\documentclass`, `\usepackage`, `\begin{document}`, `\end{document}`.
@@ -20,26 +20,27 @@ which is inserted after the title.
   `\immediate`, `\special`, `\catcode`, `\csname`, `\makeatletter`, `^^` sequences.
 
 ## Structure
+Write all headings and text in the episode language; the example is in English.
 ```latex
-\section{Worum es geht}
-Kurzer Einstieg in zwei, drei Sätzen.
+\section{What it is about}
+A short introduction in two or three sentences.
 
-\section{Die Kernidee}
+\section{The core idea}
 Text …
 
 \begin{equation}
   \mathrm{Attention}(Q,K,V) = \mathrm{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}\right) V
 \end{equation}
-In Worten: Jedes Wort bildet einen gewichteten Mittelwert über alle anderen Wörter …
+In words: every word forms a weighted average over all other words …
 
-\plot{ergebnisse}
+\plot{results}
 
-\section{Glossar}
+\section{Glossary}
 \begin{description}[style=nextline]
-  \item[Transformer] Ein neuronales Netz, das …
+  \item[Transformer] A neural network that …
 \end{description}
 
-\section{Quellen}
+\section{Sources}
 \begin{itemize}
   \item Vaswani et al. (2017): Attention Is All You Need. \url{https://arxiv.org/abs/1706.03762}
 \end{itemize}
@@ -57,7 +58,7 @@ columns, use `tabularx` with `\linewidth` and an `X` column.
 ## Typical errors (and how to avoid them)
 - Escape special characters in text: `\%`, `\&`, `\_`, `\#`, `\$`. Write the tilde as `\textasciitilde{}`.
 - Underscores and `^` belong only in math mode: `$d_k$`, not `d_k` in text.
-- Use German quotation marks: `\glqq …\grqq{}` or „…“ written directly (UTF-8 works).
+- Quotation marks: in German `\glqq …\grqq{}` or „…“ written directly (UTF-8 works); in English ``` ``…'' ``` or “…”.
 - Put URLs only in `\url{…}` or `\href{…}{…}`; `%` and `#` inside a URL need no escaping there.
 - Close every environment you open, and balance all `{` and `}`.
 - Use a `description` list instead of a two-column `tabular` with long text.

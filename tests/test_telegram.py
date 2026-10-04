@@ -85,7 +85,7 @@ async def test_new_episode_flow_until_audio(env):
     await env.bot.handle_callback(CHAT, draft["id"], "cb1", "d:len:kurz")
     await env.bot.handle_callback(CHAT, draft["id"], "cb2", "d:dep:quick")
     assert "✓ Kurz · 5 min" in str(env.m.edits[-1]["keyboard"]) and "✓ 🔎 Schnell" in str(env.m.edits[-1]["keyboard"])
-    assert "Recherche: Schnell (ca. 3 Paper)" in env.m.edits[-1]["text"]
+    assert "Recherche: Schnell (1–2 Scouts, bis 3 Paper" in env.m.edits[-1]["text"]
     await env.bot.handle_callback(CHAT, draft["id"], "cb3", "d:go")
 
     (job,) = env.store.list()

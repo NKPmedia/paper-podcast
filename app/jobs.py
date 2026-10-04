@@ -17,8 +17,10 @@ from typing import Callable, Protocol
 from app.config import Settings
 from app.db import Job, JobStore, now
 from app.models import EpisodeRequest
-from app.errors import format_error
-from app.pipeline import STAGE_NAMES, EpisodeContext, create_job, current_title, load_context, run_pipeline
+from app.errors import NeedsInput, format_error
+from app.pipeline import (
+    STAGE_NAMES, EpisodeContext, EpisodeLog, clarify, create_job, current_title, load_context, run_pipeline,
+)
 from app.prompts import PromptStore
 
 log = logging.getLogger(__name__)
@@ -27,7 +29,7 @@ ContextFactory = Callable[[Path], EpisodeContext]
 
 
 class JobListener(Protocol):
-    """Notified about job events: 'started', 'progress', 'done', 'failed', 'cancelled'."""
+    """Notified about job events: 'started', 'progress', 'waiting', 'done', 'failed', 'cancelled'."""
 
     async def job_event(self, job: Job, event: str) -> None: ...
 
@@ -81,9 +83,21 @@ class JobService:
         self.store.update(job_id, status="queued", error="", message="", from_stage=from_stage, finished_at=None)
         self._wake()
 
+    def answer(self, job_id: str, answers: list[str]) -> None:
+        """Store the answers to the clarifying questions and queue the job again."""
+        job = self._get(job_id)
+        if job.status != "waiting":
+            raise JobError("Diese Episode wartet nicht auf Antworten")
+        job_dir = self.job_dir(job_id)
+        saved = clarify.save_answers(job_dir, answers)
+        EpisodeLog(job_dir / "log.jsonl").write(
+            "answers", stage="research", answered=sum(1 for a in saved if a["answer"]), questions=len(saved))
+        self.store.update(job_id, status="queued", message="Antworten erhalten", finished_at=None)
+        self._wake()
+
     async def cancel(self, job_id: str) -> None:
         job = self._get(job_id)
-        if job.status == "queued":
+        if job.status in ("queued", "waiting"):
             self.store.update(job_id, status="cancelled", finished_at=now())
         elif job.status == "running" and self.worker:
             await self.worker.cancel(job_id)
@@ -188,6 +202,14 @@ class Worker:
             if task and not task.done():
                 task.cancel()
             raise
+        except NeedsInput as exc:
+            self.store.update(
+                job.id, status="waiting", message=f"Wartet auf deine Antworten ({len(exc.questions)} Rückfragen)",
+                cost_usd=episode_cost(job_dir),
+            )
+            self._current = None
+            await self._emit(job.id, "waiting")
+            return
         except Exception as exc:
             log.exception("Job %s failed", job.id)
             stage = (self.store.get(job.id) or job).stage

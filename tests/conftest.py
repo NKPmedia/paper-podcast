@@ -45,6 +45,16 @@ SCOUT = {
     ]
 }
 SELECTION = {"focus": "Ergebnis A", "selected": [{"id": "arxiv:2401.00001", "reason": "Kern"}]}
+PLAN = {
+    "focus": "Ergebnis A und seine Grenzen",
+    "key_questions": ["Was zeigt das Paper?", "Wie funktioniert die Methode?", "Wo sind die Grenzen?"],
+    "tasks": [
+        {"title": "Core work", "objective": "Find the core paper", "search_hints": "transformer", "avoid": ""},
+        {"title": "Foundations", "objective": "Prior work", "search_hints": "attention", "avoid": "core"},
+        {"title": "Critique", "objective": "Replications, limitations, opposing views", "search_hints": "critique",
+         "avoid": ""},
+    ],
+}
 
 
 HANDOUT = {
@@ -65,10 +75,12 @@ PLOT_FIX = {"plots": [{"name": "zweite", "caption": "Schematisch",
 
 def default_responses(script: dict | None = None) -> dict:
     return {
+        "ClarificationRequest": [{"needs_clarification": False, "reason": "Clear topic.", "questions": []}] * 5,
         "Handout": [HANDOUT],
         "PlotFixes": [PLOT_FIX],
         "ScoutResult": [SCOUT] * 10,
         "Selection": [SELECTION],
+        "ResearchPlan": [PLAN] * 3,
         "ResearchResult": [RESEARCH],
         "Script": [script or make_script(words_per_line=4)],
     }
@@ -100,6 +112,7 @@ class FakeClaude:
             cost_usd=0.01,
             num_turns=3,
             skills_used=list(call.skills[:1]),
+            tokens={"input": 1000, "output": 200, "cache_read": 5000, "cache_write": 300},
         )
 
 

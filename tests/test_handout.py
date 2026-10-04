@@ -33,7 +33,7 @@ async def test_handout_pipeline(settings):
     assert call.skills == ["latex-handout", "handout-plots"] and call.tools == ["Read"]
     assert "Testepisode" in call.prompt and "papers/arxiv_2401.00001.md" in call.prompt
     (fix,) = claude.calls_for("PlotFixes")
-    assert "Import nicht erlaubt: os" in fix.prompt and fix.resume
+    assert "Import not allowed: os" in fix.prompt and fix.resume
     assert claude.calls_for("HandoutFix") == []
 
     figures = job_dir / "handout" / "figures"
@@ -61,8 +61,8 @@ async def test_latex_errors_are_repaired(settings):
     await run_pipeline(ctx)
 
     first, second = claude.calls_for("HandoutFix")
-    assert "LaTeX Error" in first.prompt and "Zeile" in first.prompt
-    assert "Sicherheitsprüfung" in second.prompt and "\\input" in second.prompt
+    assert "LaTeX Error" in first.prompt and "Line" in first.prompt
+    assert "Security check" in second.prompt and "\\input" in second.prompt
     assert "Repariert" in pdf_text(job_dir / "handout.pdf")
     log = [json.loads(line) for line in (job_dir / "log.jsonl").read_text().splitlines()]
     (entry,) = [e for e in log if e["event"] == "handout"]

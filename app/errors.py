@@ -41,3 +41,11 @@ def format_error(exc: BaseException, stage_label: str = "") -> str:
 def split_error(text: str) -> tuple[str, str]:
     message, _, details = (text or "").partition(DETAILS_MARKER)
     return message.strip(), details.strip()
+
+
+class NeedsInput(Exception):
+    """The job pauses until the listener answers clarifying questions (see app.pipeline.clarify)."""
+
+    def __init__(self, questions: list[dict]):
+        super().__init__(f"{len(questions)} clarifying question(s) need an answer")
+        self.questions = questions

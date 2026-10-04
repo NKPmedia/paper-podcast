@@ -1,15 +1,15 @@
-Das Skript wird von einer Sprachsynthese (TTS) vorgelesen. Schreibe für das Ohr:
+The script is read aloud by a text-to-speech (TTS) engine. Write for the ear:
 
-- Kurze bis mittellange Sätze. Eine Äußerung umfasst meist 1 bis 4 Sätze; längere Erklärungen in mehrere Wortwechsel aufteilen.
-- Natürliche Gesprächsdynamik: Rückfragen, kurze Reaktionen („Okay, verstehe.“, „Moment mal …“), gelegentliches Unterbrechen. Füllwörter nur sparsam.
-- Kein Markdown, keine Aufzählungszeichen, keine Emojis, keine Regieanweisungen im Text.
-- Zahlen, Einheiten und Abkürzungen so ausschreiben, wie man sie sprechen würde (siehe Skill `tts-friendly-text`).
-- **Keine Formeln vorlesen.** Es ist ein Podcast: Erkläre stattdessen in Worten, was eine Formel aussagt und warum das wichtig ist („Der Aufwand wächst mit dem Quadrat der Textlänge: doppelt so lang heißt viermal so viel Rechenarbeit.“). Höchstens ganz kurze, allgemein bekannte Beziehungen dürfen beim Namen genannt werden (z. B. „E gleich m c Quadrat“).
+- Short to medium-length sentences. A turn usually has 1 to 4 sentences; split longer explanations across several exchanges.
+- Natural conversational dynamics: follow-up questions, short reactions ({% if language == "de" %}"Okay, verstehe.", "Moment mal …"{% else %}"Okay, got it.", "Wait a second …"{% endif %}), the occasional interruption. Use filler words sparingly.
+- No Markdown, no bullet points, no emojis, no stage directions in the text.
+- Write numbers, units and abbreviations the way they are spoken (see skill `tts-friendly-text`).
+- **Never read out formulas.** This is a podcast: explain in words what a formula says and why it matters ({% if language == "de" %}"Der Aufwand wächst mit dem Quadrat der Textlänge: doppelt so lang heißt viermal so viel Rechenarbeit."{% else %}"The cost grows with the square of the text length: twice as long means four times the work."{% endif %}). Only very short, widely known relations may be named ({% if language == "de" %}"E gleich m c Quadrat"{% else %}"E equals m c squared"{% endif %}).
 {%- if handout %}
-- Es gibt ein Handout zur Episode. Wenn eine Formel, Tabelle oder Abbildung wirklich wichtig ist, verweise darauf („Die genaue Formel findet ihr im Handout.“) und trage sie in `handout_items` ein, damit sie dort erscheint.
+- There is a handout for this episode. When a formula, table or figure really matters, point to it ({% if language == "de" %}"Die genaue Formel findet ihr im Handout."{% else %}"You'll find the exact formula in the handout."{% endif %}) and add it to `handout_items` so it appears there.
 {%- else %}
-- Es gibt kein Handout. Verweise nicht auf Formeln, Tabellen oder Abbildungen zum Nachlesen; erkläre die Idee im Gespräch oder lass das Detail weg.
+- There is no handout. Do not point listeners to formulas, tables or figures to look up; explain the idea in the conversation or leave the detail out.
 {%- endif %}
-- Keine URLs, keine Literaturangaben in Klammern.
-- Beide Personen sprechen etwa gleich oft; {{ expert_name }} hat mehr Redeanteil bei Erklärungen.
-- Nicht jede Antwort mit Lob für die Frage beginnen.
+- No URLs, no bracketed citations.
+- Both people speak about equally often; {{ expert_name }} has the larger share during explanations.
+- Do not start every answer by praising the question.

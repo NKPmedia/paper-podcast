@@ -1,22 +1,40 @@
-Du bereitest eine Podcast-Episode vor. Scouts haben mögliche Quellen gefunden und bewertet. Wähle aus, welche Quellen im Volltext gelesen werden.
+You are the lead researcher for a podcast episode; you will read the selected sources yourself afterwards. Scouts have found and rated candidate sources. Rank the ones that should be read.
 
-# Thema der Episode
+# Episode topic
 
 {{ topic }}
 {% if extra_instructions %}
-# Zusätzliche Wünsche
+# Additional requests
 
 {{ extra_instructions }}
 {% endif %}
-# Kandidaten (nach Scout-Bewertung sortiert)
+{% if clarifications | default("") %}# Answers from the listener
+
+{{ clarifications }}
+
+{% endif %}{% if plan %}# Plan
+
+Focus: {{ plan.focus }}
+
+Key questions:
+{% for q in plan.key_questions %}- {{ q }}
+{% endfor %}
+{% endif %}# Candidates (sorted by scout score)
 
 {% for c in candidates %}- **{{ c.id }}**: {{ c.title }}{% if c.authors %} ({{ c.authors }}{% if c.year %}, {{ c.year }}{% endif %}){% elif c.year %} ({{ c.year }}){% endif %}
-  Bewertung {{ c.score }}/10, gefunden von: {{ c.found_by | join(", ") }}. {{ c.reason }}{% if c.quote %}
-  Zitat: „{{ c.quote }}“{% endif %}
+  Score {{ c.score }}/10, found by: {{ c.found_by | join(", ") }}. {{ c.reason }}{% if c.quote %}
+  Quote: "{{ c.quote }}"{% endif %}
 {% endfor %}
-# Dein Auftrag
+# How reading works
 
-- Lege den Fokus der Episode fest: ein klarer roter Faden statt eines Sammelsuriums.
-- Wähle bis zu {{ count }} Quellen, die zusammen das Thema am besten abdecken: die Kernarbeit(en), dazu Kontext, Kritik oder Folgearbeiten. Die Scout-Bewertung ist nur ein Hinweis; wähle auch weiter unten in der Liste, wenn es inhaltlich passt.
-- Bevorzuge Quellen mit Volltext (arXiv-ID, PDF-Link oder DOI).
-- Verwende exakt die IDs aus der Liste.
+The server downloads your sources **in your order**, measures how long each one is, and has them read until a reading budget of about {{ (budget / 1000) | int }}k tokens is used, at most {{ max_papers }} papers. A typical paper is 8k–15k tokens; long ones with appendices reach 35k.
+- The **first** source is always read completely. Put the core paper there.
+- The following ones are read completely while the budget lasts, then only their key sections, then not at all.
+- So order strictly by how indispensable a source is for the key questions. Listing more than fit is fine: they are the reserve if a download fails.
+
+# Your task
+
+- Set the focus of the episode (in English): one clear common thread rather than a grab bag.
+- Rank up to {{ count }} sources that together answer the key questions: the core paper(s), plus context, critique or follow-up work. The scout score is only a hint; pick from further down the list when the content fits. Avoid near-duplicates (e.g. a preprint and its journal version).
+- Prefer sources with a full text (arXiv ID, PDF link or DOI).
+- Use the IDs exactly as listed. Write each `reason` in English, one sentence.

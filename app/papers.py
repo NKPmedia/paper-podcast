@@ -62,7 +62,12 @@ class PaperFile:
     source_url: str = ""
     format: str = ""
     lines: int = 0
-    truncated: bool = False
+    truncated: bool = False  # the main text itself had to be cut
+    omitted_chars: int = 0  # characters of the main text that were cut
+    references_removed: bool = False
+    appendix_file: str = ""
+    appendix_lines: int = 0
+    appendix_truncated: bool = False
     error: str = ""
 
 
@@ -120,6 +125,8 @@ def html_to_markdown(html: str) -> str:
         seen.add(id(node))
         if node.name.startswith("h"):
             text = re.sub(r"\s+", " ", _inline_text(node)).strip()
+            if text and node.find_parent(class_="ltx_appendix") and not text.lower().startswith("appendix"):
+                text = "Appendix " + text  # LaTeXML appendix sections, so split_paper finds them
             if text:
                 blocks.append("#" * int(node.name[1]) + " " + text)
         elif node.name == "table":
@@ -156,6 +163,80 @@ def pdf_to_markdown(data: bytes) -> str:
         paragraphs = [_wrap(p) for p in re.split(r"\n\s*\n", text)]
         pages.append(f"<!-- Seite {number} -->\n\n" + "\n\n".join(p for p in paragraphs if p))
     return "\n\n".join(pages)
+
+
+# --- Main text, references, appendix ---------------------------------------------
+
+_REFS = r"(?:\d+\.?\s*)?(?:references|bibliography|literature cited|works cited|literatur(?:verzeichnis)?)"
+_APPX = r"(?:appendix|appendices|supplementary (?:material|information|materials)|anhang)\b"
+# Markdown headings (HTML conversion) or short standalone paragraphs (PDF conversion).
+REFS_LINE = re.compile(rf"^(?:#{{1,6}}\s*)?{_REFS}\s*:?\s*$", re.IGNORECASE | re.MULTILINE)
+APPX_LINE = re.compile(rf"^(?:#{{1,6}}\s*)?(?:[A-Z](?:\.\d+)*\.?\s+)?{_APPX}.{{0,80}}$", re.IGNORECASE | re.MULTILINE)
+# Letter-numbered sections ("A Proofs", "## B.1 Setup") count as appendix only after the references.
+LETTER_SECTION = re.compile(r"^(?:#{1,6}\s*)?[A-Z](?:\.\d+)*\.?\s+[A-Z][^\n]{2,80}$", re.MULTILINE)
+EARLIEST_SPLIT = 0.3  # a 'References' line in the first 30 % is a table of contents, not the list
+
+
+def _first(pattern: re.Pattern, text: str, start: int) -> int | None:
+    """Start of the first match that looks like a heading: a Markdown heading, or a short
+    line without a closing full stop (so "Appendix B lists the data." in running text is skipped)."""
+    for match in pattern.finditer(text, start):
+        line = match.group(0).strip()
+        if line.startswith("#") or (len(line) <= 70 and not line.endswith(".")):
+            return match.start()
+    return None
+
+
+def split_paper(text: str) -> tuple[str, str, bool]:
+    """Split a converted paper into (main text, appendix, references removed).
+
+    The main text is everything up to the reference list or the appendix. The
+    reference list is dropped (it is long and useless for the episode); the
+    appendix is returned separately so it can be stored next to the main text.
+    """
+    floor = int(len(text) * EARLIEST_SPLIT)
+    refs = _first(REFS_LINE, text, floor)
+    appx = _first(APPX_LINE, text, floor)
+    if refs is not None and appx is not None and appx < refs:
+        return text[:appx].rstrip(), text[appx:refs].strip(), True  # appendix before the references
+    if refs is not None:
+        tail_start = text.find("\n", refs) + 1 or len(text)
+        appx = appx if appx is not None else _first(LETTER_SECTION, text, tail_start)
+        return text[:refs].rstrip(), (text[appx:].strip() if appx is not None else ""), True
+    if appx is not None:
+        return text[:appx].rstrip(), text[appx:].strip(), False
+    return text.rstrip(), "", False
+
+
+def cut_at_paragraph(text: str, limit: int) -> tuple[str, int]:
+    """Cut ``text`` to at most ``limit`` characters at a paragraph break; return (text, omitted chars)."""
+    if len(text) <= limit:
+        return text, 0
+    cut = text.rfind("\n\n", 0, limit)
+    if cut < limit * 0.8:
+        cut = limit
+    return text[:cut].rstrip(), len(text) - cut
+
+
+def coverage_note(paper: dict, mode: str = "") -> str:
+    """One English sentence per fact about what an agent does NOT see of this paper."""
+    notes = []
+    if paper.get("truncated"):
+        total = paper.get("omitted_chars", 0)
+        notes.append(f"The main text was cut: the last ~{total // 4 // 1000 or 1}k tokens of it are missing "
+                     "(marked at the end of the file).")
+    if paper.get("appendix_file"):
+        cut = " (itself cut at the end)" if paper.get("appendix_truncated") else ""
+        notes.append(f"The appendix is in a separate file `{paper['appendix_file']}` "
+                     f"({paper.get('appendix_lines', 0)} lines){cut}; open it only for specific details.")
+    if paper.get("references_removed"):
+        notes.append("The reference list was removed.")
+    if mode == "selective":
+        notes.append("During the research only its key sections were read (abstract, introduction, method "
+                     "overview, results, conclusion), not the complete main text.")
+    elif mode == "full":
+        notes.append("During the research its complete main text was read.")
+    return " ".join(notes)
 
 
 # --- Downloading ----------------------------------------------------------------
@@ -254,19 +335,41 @@ class PaperDownloader:
             except (DownloadError, httpx.HTTPError, ValueError) as exc:
                 errors.append(f"{url or doi}: {exc}")
                 continue
-            if len(text) > self.max_chars:
-                text = text[: self.max_chars] + "\n\n[… gekürzt …]"
-                paper.truncated = True
-            header = f"# {candidate.title}\n\nQuelle: {url}\n\n"
-            path = out_dir / f"{file_key(candidate.id)}.md"
-            path.write_text(header + text + "\n", encoding="utf-8")
-            paper.file = f"papers/{path.name}"
+            save_paper(paper, candidate.title, text, url, out_dir, self.max_chars)
             paper.source_url = url
             paper.format = fmt
-            paper.lines = (header + text).count("\n") + 1
             return paper
         paper.error = "; ".join(errors) or "no URL to try"
         return paper
+
+
+def save_paper(paper: PaperFile, title: str, text: str, url: str, out_dir: Path, max_chars: int) -> None:
+    """Write the main text (with a header that says what is missing) and the appendix."""
+    main, appendix, paper.references_removed = split_paper(text)
+    main, paper.omitted_chars = cut_at_paragraph(main, max_chars)
+    paper.truncated = paper.omitted_chars > 0
+    if paper.truncated:
+        main += (f"\n\n[… TRUNCATED: the last {paper.omitted_chars:,} characters of the main text are missing "
+                 "here because the paper is too long …]")
+    key = file_key(paper.id)
+    if appendix:
+        appendix, cut = cut_at_paragraph(appendix, max_chars)
+        paper.appendix_truncated = cut > 0
+        if cut:
+            appendix += f"\n\n[… TRUNCATED: the last {cut:,} characters of the appendix are missing …]"
+        appendix_path = out_dir / f"{key}.appendix.md"
+        appendix_text = f"# Appendix of: {title}\n\nSource: {url}\n\n{appendix}\n"
+        appendix_path.write_text(appendix_text, encoding="utf-8")
+        paper.appendix_file = f"papers/{appendix_path.name}"
+        paper.appendix_lines = appendix_text.count("\n")
+    header = f"# {title}\n\nSource: {url}\n\n"
+    note = coverage_note(asdict(paper))
+    if note:
+        header += f"> Note: this file holds the main text of the paper. {note}\n\n"
+    path = out_dir / f"{key}.md"
+    path.write_text(header + main + "\n", encoding="utf-8")
+    paper.file = f"papers/{path.name}"
+    paper.lines = (header + main).count("\n") + 1
 
 
 async def download_all(

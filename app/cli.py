@@ -21,8 +21,9 @@ from app.auth import hash_password
 from app.config import get_settings, save_settings
 from app.db import JobStore
 from app.jobs import JobService
-from app.models import EpisodeOptions, EpisodeRequest, Length, ResearchDepth
-from app.pipeline import STAGE_NAMES, create_job, load_context, run_pipeline
+from app.models import EpisodeOptions, EpisodeRequest, Language, Length, ResearchDepth
+from app.errors import NeedsInput
+from app.pipeline import STAGE_NAMES, clarify, create_job, load_context, run_pipeline
 from app.prompts import BLOCK_DESCRIPTIONS, PromptStore
 from app.skills import SkillStore
 
@@ -41,11 +42,37 @@ def _progress(stage: str, description: str) -> None:
     print(f"==> [{stage}] {description}", flush=True)
 
 
+def ask_questions(questions: list[dict]) -> list[str]:
+    """Ask the clarifying questions in the terminal; Enter on an empty line lets Claude decide."""
+    print(f"\nClaude hat {len(questions)} Rückfrage(n). Nummer wählen, eigene Antwort tippen oder leer lassen.")
+    answers = []
+    for i, question in enumerate(questions, start=1):
+        print(f"\n{i}. {question['question']}")
+        for k, option in enumerate(question["options"], start=1):
+            print(f"   {k}) {option}")
+        reply = input("> ").strip()
+        if reply.isdigit() and 1 <= int(reply) <= len(question["options"]):
+            reply = question["options"][int(reply) - 1]
+        elif reply and not question.get("allow_free_text", True):
+            reply = ""
+        answers.append(reply)
+    return answers
+
+
 async def _run(job_dir: Path, from_stage: str | None) -> None:
     settings = get_settings()
-    ctx = load_context(job_dir, settings)
-    mp3 = await run_pipeline(ctx, progress=_progress, from_stage=from_stage)
-    print(f"Fertig: {mp3}")
+    while True:
+        ctx = load_context(job_dir, settings)
+        try:
+            mp3 = await run_pipeline(ctx, progress=_progress, from_stage=from_stage)
+        except NeedsInput as exc:
+            if not sys.stdin.isatty():
+                raise SystemExit(f"Claude hat Rückfragen, aber es gibt kein Terminal zum Antworten. "
+                                 f"Episode mit --no-questions neu starten. ({job_dir})") from exc
+            clarify.save_answers(job_dir, ask_questions(exc.questions))
+            continue
+        print(f"Fertig: {mp3}")
+        return
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -62,6 +89,10 @@ def main(argv: list[str] | None = None) -> int:
         new.add_argument("--length", choices=[x.value for x in Length], default=Length.mittel.value)
         new.add_argument("--depth", choices=[x.value for x in ResearchDepth], default=ResearchDepth.medium.value)
         new.add_argument("--handout", action="store_true", help="Handout als PDF erstellen")
+        new.add_argument("--no-questions", action="store_true",
+                         help="Keine Rückfragen vor der Recherche, auch wenn das Thema unklar ist")
+        new.add_argument("--language", choices=[x.value for x in Language], default=None,
+                         help="Sprache der Episode (Standard: Einstellung default_language)")
         new.add_argument("--extra", default="", help="Zusätzliche Wünsche für diese Episode")
         new.add_argument("--block", action="append", default=[], metavar="BLOCK=TEXT",
                          help="Text an einen Prompt-Block anhängen (mehrfach möglich)")
@@ -117,6 +148,8 @@ def main(argv: list[str] | None = None) -> int:
                 length=Length(args.length),
                 research_depth=ResearchDepth(args.depth),
                 handout=args.handout,
+                language=Language(args.language or settings.default_language),
+                clarify=not args.no_questions,
                 extra_instructions=args.extra,
                 block_overrides=_parse_kv(args.block),
                 extra_skills=args.skill,

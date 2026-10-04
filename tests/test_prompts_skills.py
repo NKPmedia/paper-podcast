@@ -1,3 +1,4 @@
+from app.models import ScoutTask
 import pytest
 
 from app.models import EpisodeRequest, EpisodeOptions, Length
@@ -12,8 +13,8 @@ def test_blocks_render_with_context(settings):
     blocks = store.resolve(ctx)
     assert set(blocks) == {"system", "personas", "style", "structure", "research", "script_rules", "handout"}
     assert "Lena" in blocks["personas"]
-    assert "50 Wörter" in blocks["structure"]  # 5 min * 10 wpm in the test settings
-    assert "mittel" in blocks["research"]
+    assert "50 words" in blocks["structure"]  # 5 min * 10 wpm in the test settings
+    assert "Scope: normal" in blocks["research"]
 
 
 def test_override_reset_and_per_request_addition(settings):
@@ -36,7 +37,8 @@ def _ctx(settings):
 def test_stage_templates_render(settings):
     blocks = PromptStore(settings.prompts_dir).resolve(_ctx(settings))
     text = render_stage(
-        "scout", blocks=blocks, topic="Quantencomputer", extra_instructions="", angle="Kritik", count=10, searches=6
+        "scout", blocks=blocks, topic="Quantencomputer", extra_instructions="", count=10, searches=6, plan=None,
+        task=ScoutTask(title="Kritik", objective="Find critique", search_hints="quantum critique"),
     )
     assert "Quantencomputer" in text and "paper-research" in text and "Kritik" in text
 
@@ -44,7 +46,7 @@ def test_stage_templates_render(settings):
 def test_skills_discovery_override_and_install(settings, tmp_path):
     store = SkillStore(settings.skills_dir, settings.data_dir / "skills.json")
     skills = store.all()
-    assert {"paper-research", "german-podcast-dialogue", "tts-friendly-text", "fact-check", "handout-plots"} <= set(skills)
+    assert {"paper-research", "podcast-dialogue", "tts-friendly-text", "fact-check", "handout-plots"} <= set(skills)
     assert skills["paper-research"].description
 
     own = settings.skills_dir / "mein-skill"
@@ -76,6 +78,6 @@ def test_script_rules_depend_on_handout(settings):
     with_handout = store.resolve(
         prompt_context(settings, EpisodeRequest(topic="x", options=EpisodeOptions(handout=True)))
     )["script_rules"]
-    assert "Keine Formeln vorlesen" in without and "Keine Formeln vorlesen" in with_handout
-    assert "Es gibt kein Handout" in without and "handout_items" not in without
+    assert "Never read out formulas" in without and "Never read out formulas" in with_handout
+    assert "There is no handout" in without and "handout_items" not in without
     assert "handout_items" in with_handout
