@@ -32,21 +32,34 @@ paper-podcast → Package settings.
 
 ### Automatic update in Portainer
 
-After every successful build on `main`, the workflow's `deploy` job calls a Portainer
-stack webhook, so Portainer pulls the new `latest` image and redeploys the stack.
+After every successful build on `main`, the workflow's `deploy` job tells Portainer
+through its API to pull the new `latest` image and redeploy the stack. This works with
+the free Community Edition (stack webhooks would need the Business Edition).
 
-1. In Portainer, open the stack → **Editor** (or **Settings**), enable **Webhook** and
-   **Re-pull image and redeploy**, save, and copy the webhook URL
-   (`https://<portainer>/api/stacks/webhooks/<id>`).
-2. In GitHub → repository **Settings → Secrets and variables → Actions**, add the
-   secret `PORTAINER_WEBHOOK_URL` with that URL.
+1. In Portainer: **My account → Access tokens → Add access token**, copy the token.
+2. Open the stack; its ID is in the address bar: `…/stacks/<ID>?…`.
+3. In GitHub → repository **Settings → Secrets and variables → Actions**, add the
+   secrets:
+
+   | Secret | Example |
+   |---|---|
+   | `PORTAINER_URL` | `https://portainer.example.org:9443` |
+   | `PORTAINER_API_KEY` | the access token |
+   | `PORTAINER_STACK_ID` | `7` |
+
+   With a self-signed certificate, also add the **variable** (not secret)
+   `PORTAINER_INSECURE` = `true`.
 
 Notes:
 - Portainer must be reachable from GitHub's runners (the internet).
+- The job keeps the stack's file and environment variables as they are in Portainer
+  and only adds "pull image". Stacks from the web editor, an upload or a Git
+  repository all work.
 - If the package is private, add the GHCR login under Portainer → **Registries**, so it
   can pull the image.
-- Without the secret the job is skipped with a notice; other branches and pull
-  requests never deploy.
+- Without the secrets the job is skipped with a notice; other branches and pull
+  requests never deploy. Wrong token, unknown stack ID or an unreachable Portainer
+  fail the job with a clear message.
 - Data lives in the `paper-podcast-data` volume and survives the redeploy. A running
   episode is interrupted and resumes from its last finished step after the restart.
 
