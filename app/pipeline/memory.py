@@ -60,6 +60,7 @@ async def run(ctx) -> None:
                                         "expert": ctx.prompt_context["expert_name"]}),
         sources=sources,
         library=known,
+        series=library.prompt_context(ctx.settings, ctx.job_dir.name, opts)["series"],
         max_follow_ups=MAX_FOLLOW_UPS,
         language_name=opts.language.english_name,
     )

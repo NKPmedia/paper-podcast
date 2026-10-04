@@ -28,6 +28,16 @@
         <select name="language">{% for value, label in languages.items() %}<option value="{{ value }}" {% if value == settings.default_language %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
       </label>
     </div>
+    <div class="row">
+      <label>Vorwissen
+        <select name="audience">{% for value, label in audiences.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>
+      </label>
+      {% if all_series %}
+      <label>Reihe <span class="hint">optional – wird der nächste Teil</span>
+        <select name="series"><option value="">Keine Reihe</option>{% for s in all_series %}<option value="{{ s.id }}" {% if s.id == prefill.series %}selected{% endif %}>{{ s.title }} (Teil {{ s.episodes | length + 1 }})</option>{% endfor %}</select>
+      </label>
+      {% endif %}
+    </div>
     <label class="check"><input type="checkbox" name="clarify" checked> Rückfragen erlauben – ist das Thema unklar, fragt Claude vor der Recherche nach (bis zu 10 Fragen mit Antwortvorschlägen)</label>
     <label class="check"><input type="checkbox" name="handout"> Handout als PDF – mit Abbildungen und den Formeln, die im Gespräch nur in Worten erklärt werden</label>
     <label>Zusätzliche Wünsche <span class="hint">optional</span>
@@ -61,7 +71,7 @@
     {% for job in jobs %}
     <li data-job-id="{{ job.id }}">
       <a href="/episodes/{{ job.id }}" class="job-title">{{ job.display_title }}</a>
-      <span class="meta">{{ job.created_at | time }}{% if job.duration_s %} · {{ job.duration_s | duration }} min{% endif %}</span>
+      <span class="meta">{{ job.created_at | time }}{% if job.duration_s %} · {{ job.duration_s | duration }} min{% endif %}{% if job.id in parts %} · {{ parts[job.id][0].title }}, Teil {{ parts[job.id][1] }}{% endif %}</span>
       <span class="badge {{ job.status }}" data-field="status">{{ status_labels[job.status] }}{% if job.status == "running" and job.stage %} · {{ stage_labels.get(job.stage, job.stage) }}{% endif %}</span>
     </li>
     {% endfor %}

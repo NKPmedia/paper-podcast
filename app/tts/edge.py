@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import re
 from pathlib import Path
 
@@ -32,7 +33,9 @@ STYLE_PROSODY = {
     "calm": ("-5%", "+0Hz"),
 }
 
-RETRIES = 4
+# Edge throttles long sessions with many requests for a while; wait it out (~4 min in total)
+# instead of failing the whole episode on a short burst of errors.
+RETRY_DELAYS = (5, 15, 45, 90, 120)
 
 
 def clean_text(text: str) -> str:
@@ -64,7 +67,8 @@ class EdgeTTS:
 
         rate, pitch = prosody(style)
         tmp = path.with_suffix(".part")
-        for attempt in range(1, RETRIES + 1):
+        retries = len(RETRY_DELAYS) + 1
+        for attempt in range(1, retries + 1):
             try:
                 communicate = edge_tts.Communicate(
                     text, voice, rate=rate, pitch=pitch, proxy=self.settings.edge_proxy
@@ -75,15 +79,15 @@ class EdgeTTS:
                 tmp.rename(path)
                 return
             except Exception as exc:  # network hiccups, throttling
-                if attempt == RETRIES:
+                if attempt == retries:
                     raise PodcastError(
                         "Die Sprachausgabe (Edge TTS) ist nicht erreichbar. Prüfe die Internetverbindung des Servers "
                         "oder trag unter Einstellungen → Stimmen einen Gemini-Key ein. Mit „Fortsetzen“ geht es "
                         "beim letzten Satz weiter.",
-                        f"Edge TTS failed for {path.name} after {RETRIES} attempts: {type(exc).__name__}: {exc}",
+                        f"Edge TTS failed for {path.name} after {retries} attempts: {type(exc).__name__}: {exc}",
                     ) from exc
-                delay = 2**attempt
-                log.warning("Edge TTS %s failed (%s), retry in %ss", path.name, exc, delay)
+                delay = RETRY_DELAYS[attempt - 1] * random.uniform(0.8, 1.2)
+                log.warning("Edge TTS %s failed (%s), retry in %.0fs", path.name, exc, delay)
                 await asyncio.sleep(delay)
 
     async def synthesize(self, script: Script, out_dir: Path) -> list[Clip]:
@@ -104,5 +108,12 @@ class EdgeTTS:
                 jobs.append(one(text, self.voices[line.speaker], line.style, path))
             elif not text:
                 clips.pop()
-        await asyncio.gather(*jobs)
+        tasks = [asyncio.ensure_future(job) for job in jobs]
+        try:
+            await asyncio.gather(*tasks)
+        except BaseException:
+            for task in tasks:  # stop the other requests; finished clips are kept for "Fortsetzen"
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
         return clips

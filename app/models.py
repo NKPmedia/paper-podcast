@@ -32,6 +32,13 @@ class Language(str, Enum):
         return {"de": "German", "en": "English"}[self.value]
 
 
+class Audience(str, Enum):
+    """What the listener already knows from earlier episodes."""
+
+    regular = "regular"  # has heard the earlier episodes: refresh known basics briefly, go deeper
+    newcomer = "newcomer"  # explain everything, earlier episodes are only pointers
+
+
 class ResearchDepth(str, Enum):
     quick = "quick"
     medium = "medium"
@@ -52,6 +59,7 @@ class EpisodeOptions(BaseModel):
     extra_skills: list[str] = Field(default_factory=list)
     # Job ID of the earlier episode this one continues (a follow-up suggestion), or "".
     follows: str = ""
+    audience: Audience = Audience.regular
 
 
 class EpisodeRequest(BaseModel):

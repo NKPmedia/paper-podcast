@@ -7,6 +7,7 @@ tests substitute a fake.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -22,29 +23,39 @@ log = logging.getLogger(__name__)
 
 
 class ClaudeError(PodcastError):
-    pass
+    def __init__(self, message: str, details: str = "", transient: bool = False):
+        super().__init__(message, details)
+        self.transient = transient  # worth retrying after a pause
 
 
-# (regex over the raw error and Claude's stderr, summary shown to the user)
+GENERIC = "Claude ist mit einem Fehler abgebrochen."
+# (regex over the raw error and Claude's stderr, summary shown to the user, transient?)
 CAUSES = (
     (r"invalid api key|invalid bearer|authentication|unauthorized|\b401\b|oauth token|not logged in|/login"
      r"|token (has )?expired",
      "Claude konnte sich nicht anmelden: Der Claude-Token ist ungültig oder abgelaufen. Erzeuge einen neuen mit "
-     "`claude setup-token` und trag ihn unter Einstellungen → Claude ein."),
-    (r"usage limit|rate.?limit|\b429\b|quota",
-     "Das Claude-Nutzungslimit ist erreicht. Später mit „Fortsetzen“ weitermachen; fertige Schritte bleiben erhalten."),
+     "`claude setup-token` und trag ihn unter Einstellungen → Claude ein.", False),
+    (r"usage limit|quota",
+     "Das Claude-Nutzungslimit ist erreicht. Später mit „Fortsetzen“ weitermachen; fertige Schritte bleiben erhalten.",
+     False),
+    (r"rate.?limit|\b429\b|too many requests",
+     "Claude hat zu viele Anfragen auf einmal abgelehnt (Ratenlimit). Später mit „Fortsetzen“ weitermachen; "
+     "unter Einstellungen → Claude kannst du weniger parallele Aufrufe einstellen.", True),
     (r"overloaded|\b529\b|internal server error|\b50[023]\b",
-     "Die Claude-Server sind gerade überlastet oder gestört. Bitte später mit „Fortsetzen“ erneut versuchen."),
+     "Die Claude-Server sind gerade überlastet oder gestört. Bitte später mit „Fortsetzen“ erneut versuchen.", True),
     (r"enotfound|econnrefused|econnreset|etimedout|getaddrinfo|network error|connection error|unable to connect"
      r"|fetch failed",
-     "Claude ist vom Server aus nicht erreichbar (Netzwerkproblem). Prüfe die Internetverbindung des Servers."),
+     "Claude ist vom Server aus nicht erreichbar (Netzwerkproblem). Prüfe die Internetverbindung des Servers.", True),
+    (r"exit code:? ?(-9|137)\b|sigkill|out of memory|enomem|heap out of memory|\bkilled\b",
+     "Claude Code wurde beendet, vermutlich weil der Arbeitsspeicher nicht reichte. Unter Einstellungen → Claude "
+     "weniger parallele Aufrufe einstellen oder dem Server mehr RAM geben, dann mit „Fortsetzen“ weitermachen.", True),
     (r"model not found|invalid model|not_found_error",
-     "Das eingestellte Claude-Modell ist nicht verfügbar. Prüfe die Modellnamen unter Einstellungen → Claude."),
+     "Das eingestellte Claude-Modell ist nicht verfügbar. Prüfe die Modellnamen unter Einstellungen → Claude.", False),
     (r"error_max_turns|max_turns|maximum number of turns",
      "Claude hat das Rundenlimit erreicht, bevor die Antwort fertig war. Mit „Fortsetzen“ erneut versuchen oder "
-     "unter Einstellungen → Claude mehr Runden erlauben."),
+     "unter Einstellungen → Claude mehr Runden erlauben.", False),
     (r"clinotfound|claude code not found",
-     "Claude Code wurde im Container nicht gefunden. Das Image ist vermutlich beschädigt – bitte neu ziehen."),
+     "Claude Code wurde im Container nicht gefunden. Das Image ist vermutlich beschädigt – bitte neu ziehen.", False),
 )
 
 
@@ -52,10 +63,10 @@ def claude_error(raw: str, stderr: list[str] | None = None) -> ClaudeError:
     """Turn a raw Claude failure into a ClaudeError with a clear summary."""
     tail = "\n".join(stderr or [])[-3000:]
     haystack = f"{raw}\n{tail}".lower()
-    summary = next((text for pattern, text in CAUSES if re.search(pattern, haystack)),
-                   "Claude ist mit einem Fehler abgebrochen.")
+    summary, transient = next(((text, retry) for pattern, text, retry in CAUSES if re.search(pattern, haystack)),
+                              (GENERIC, True))  # unknown crashes are usually one-offs: worth one more try
     details = raw + (f"\n\nClaude Code output (last lines):\n{tail}" if tail.strip() else "")
-    return ClaudeError(summary, details)
+    return ClaudeError(summary, details, transient)
 
 
 def explain(error: str) -> str:
@@ -106,7 +117,26 @@ def scrubbed_env() -> dict[str, str]:
 
 
 class AgentSDKRunner:
+    # Pauses before retrying a transient failure (rate limit, overload, network, crash).
+    RETRY_DELAYS = (30, 90)
+
     async def run(self, call: ClaudeCall) -> ClaudeResult:
+        notes = []
+        for attempt in range(len(self.RETRY_DELAYS) + 1):
+            try:
+                return await self._run_once(call)
+            except ClaudeError as exc:
+                if not exc.transient or attempt == len(self.RETRY_DELAYS):
+                    if notes:
+                        exc.details = "\n\n".join([*notes, exc.details])
+                    raise
+                delay = self.RETRY_DELAYS[attempt]
+                notes.append(f"Attempt {attempt + 1} failed ({exc.message}), retried after {delay}s:\n{exc.details}")
+                log.warning("Claude call failed (%s), retrying in %ss", exc.message, delay)
+                await asyncio.sleep(delay)
+        raise AssertionError("unreachable")
+
+    async def _run_once(self, call: ClaudeCall) -> ClaudeResult:
         from claude_agent_sdk import (
             AssistantMessage,
             ClaudeAgentOptions,
@@ -148,8 +178,9 @@ class AgentSDKRunner:
                     for block in message.content:
                         if isinstance(block, ToolUseBlock):
                             log.info("claude tool: %s %s", block.name, _short(block.input))
-                            if block.name == "Skill":
-                                skills_used.append(str(block.input.get("skill", "")))
+                            skill = str(block.input.get("skill", "")) if block.name == "Skill" else ""
+                            if skill and skill not in skills_used:
+                                skills_used.append(skill)
                 elif isinstance(message, ResultMessage):
                     result = message
         except ClaudeError:

@@ -19,7 +19,11 @@ The podcast keeps a memory of all its episodes. When a new episode is written, t
 # Earlier episodes
 
 {% for e in library %}- {{ e.date }} · {{ e.title }}: {{ e.mini }}
-{% endfor %}{% endif %}
+{% endfor %}{% endif %}{% if series %}
+# Series
+
+This episode is part {{ series.part }} of the series "{{ series.title }}".{% if series.arc %} Common thread: {{ series.arc }}{% endif %}
+{% endif %}
 # What to return
 
 - `mini_summary` (English, one sentence, at most 250 characters): what the episode covered, concrete enough that someone who sees only this line can tell whether a new topic relates to it. Name the core paper, method or phenomenon, not just the field.
@@ -33,4 +37,5 @@ The podcast keeps a memory of all its episodes. When a new episode is written, t
 - `follow_ups`: up to {{ max_follow_ups }} follow-up episodes, the most rewarding first. Good follow-ups go deeper into something the episode only touched, explain a foundation it relied on, cover the critique or a competing approach, or follow the newest work. Each must be a substantial episode of its own{% if library %}, and must not repeat an earlier episode (building on one is fine){% endif %}. In {{ language_name }}:
   - `title`: a working title, at most 60 characters;
   - `topic`: the request for the new episode, one to three sentences that make sense without this episode (name papers, methods or authors where you can);
-  - `why`: one sentence on what the listener gains and how it builds on this episode.
+  - `why`: one sentence on what the listener gains and how it builds on this episode.{% if series %}
+  Make the **first** suggestion the natural next part of the series "{{ series.title }}", following its common thread; the others may branch off.{% endif %}

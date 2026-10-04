@@ -25,7 +25,7 @@ from dataclasses import dataclass
 
 from app import library
 from app.claude import ClaudeCall
-from app.errors import PodcastError
+from app.errors import PodcastError, log_text
 from app.models import (
     Candidate,
     RankedCandidate,
@@ -138,7 +138,8 @@ async def make_plan(ctx, profile: DepthProfile) -> ResearchPlan:
     prompt = render_stage("plan", blocks=ctx.blocks, min_scouts=profile.min_scouts, max_scouts=profile.max_scouts,
                           depth=ctx.request.options.research_depth.value,
                           library=library.entries(episodes_dir, exclude=ctx.job_dir.name),
-                          follows=library.episode(episodes_dir, ctx.request.options.follows), **_common(ctx))
+                          **library.prompt_context(ctx.settings, ctx.job_dir.name, ctx.request.options),
+                          **_common(ctx))
     model = ctx.settings.research_main_model
     result = await ctx.claude.run(ClaudeCall(
         prompt=prompt, cwd=ctx.job_dir, tools=[], system_append=ctx.blocks["system"],
@@ -297,15 +298,19 @@ async def _run_scout(ctx, task_id: str, task, plan: ResearchPlan, profile: Depth
 async def run_scouts(ctx, plan: ResearchPlan, profile: DepthProfile, skills: list[str]) -> list[RankedCandidate]:
     ids = task_ids(plan)
     await ctx.notify(NAME, f"{len(ids)} Scout(s) suchen nach Quellen: " + ", ".join(t.title for t in plan.tasks))
-    outcomes = await asyncio.gather(
-        *(_run_scout(ctx, tid, task, plan, profile, skills) for tid, task in zip(ids, plan.tasks)),
-        return_exceptions=True,
-    )
+    slots = asyncio.Semaphore(max(1, ctx.settings.claude_max_parallel))
+
+    async def limited(tid, task):
+        async with slots:
+            return await _run_scout(ctx, tid, task, plan, profile, skills)
+
+    outcomes = await asyncio.gather(*(limited(tid, task) for tid, task in zip(ids, plan.tasks)),
+                                    return_exceptions=True)
     results, failures = {}, {}
     for tid, task, outcome in zip(ids, plan.tasks, outcomes):
         if isinstance(outcome, BaseException):
             failures[task.title] = outcome
-            ctx.log.write("scout_failed", stage=NAME, angle=task.title, error=f"{type(outcome).__name__}: {outcome}")
+            ctx.log.write("scout_failed", stage=NAME, angle=task.title, error=log_text(outcome))
         else:
             results[tid] = outcome
     if not results:

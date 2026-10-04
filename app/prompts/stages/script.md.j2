@@ -51,16 +51,37 @@ The listener asked for this episode as a follow-up to "{{ follows.title }}" ({{ 
 
 {{ follows.reference }}
 
-Build on it: early in the opening, connect to it in one or two sentences ("last time we talked about …"), so that regular listeners feel the thread and new listeners are not lost. Do not explain again at length what it already explained; a short reminder of the key idea is enough, then go further. List it in `episode_references`.
+Build on it: early in the opening, connect to it in one or two sentences ("last time we talked about …"), so that regular listeners feel the thread and new listeners are not lost. {% if audience == "newcomer" %}Still explain everything this episode needs, because the listener may not have heard it{% else %}Do not explain again at length what it already explained; a short reminder of the key idea is enough, then go further{% endif %}. List it in `episode_references`.
+{% endif %}{% if series %}
+# This episode is part {{ series.part }} of the series "{{ series.title }}"
+{% if series.arc %}
+The common thread of the series:
+
+{{ series.arc }}
+{% endif %}{% if series.earlier %}
+The earlier parts, in order:
+
+{% for e in series.earlier %}{{ loop.index }}. `{{ e.id }}` · {{ e.title }}: {{ e.mini }}
+{% endfor %}
+What the part right before this one covered:
+
+{{ series.previous.reference }}
+{% endif %}
+- {% if series.earlier %}**Open with "previously on"**: right after the welcome, {{ host_name }} and {{ expert_name }} recap in about 30 to 60 seconds of dialogue what the series has covered so far, focused on what this part builds on, and say how this part continues the thread. Call back an analogy from an earlier part where it fits.{% else %}This is the first part: in the opening, say briefly that a series starts here and what it will be about.{% endif %}
+- Keep this part a step along the common thread: it should feel like a chapter of the series, not a standalone episode that happens to share a topic.
+- **Close with a teaser**: one or two sentences on where the series goes next{% if series.planned_after %} (the next part is already planned, so keep it general){% endif %}.
+- List every earlier part the dialogue refers to in `episode_references`.
 {% endif %}{% if library %}
 # Earlier episodes of this podcast
 
 The podcast has a memory of its earlier episodes, one line each (newest first):
 
-{% for e in library %}- `{{ e.id }}` · {{ e.date }} · {{ e.title }}: {{ e.mini }}
+{% for e in library %}- `{{ e.id }}` · {{ e.date }} · {{ e.title }}: {{ e.mini }}{% if e.key_concepts %} (concepts: {{ e.key_concepts | join(", ") }}){% endif %}
 {% endfor %}
 Where it truly helps the listener, refer to an earlier episode in the dialogue, e.g. when a concept was explained there, when it gives a useful contrast, or when this episode answers a question it left open ("in our episode on … we …"). Use its title or topic in words, never the ID. Usually zero to three references are right; never force one.
 Before you refer to an episode, Read its detailed summary `library/<ID>.md` (it says what was said and which analogies were used), so you get the facts right and can call back an analogy instead of repeating it. Do not read the summaries of episodes you do not refer to. List every episode the dialogue refers to in `episode_references`, with its ID.
+
+**What the listener already knows.** {% if audience == "newcomer" %}This episode is for listeners who are new to the podcast. Explain every concept it needs on its own, even when an earlier episode covered it; references to earlier episodes are only optional pointers ("if you want more on this, …").{% else %}The listener has heard the earlier episodes. Before you explain a foundational concept at length, check whether an earlier episode already explained it (the concept lists above tell you; its `library/<ID>.md` says how). If so, refresh it in one or two sentences, ideally calling back the analogy used then ("remember the …"), and spend the time you save going deeper into what is new.{% endif %}
 {% endif %}
 # Your task
 

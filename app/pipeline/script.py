@@ -84,7 +84,6 @@ async def run(ctx) -> None:
     papers = papers_for_prompt(ctx.job_dir)  # with notes on cut text, appendix and reading depth
     # Earlier episodes: only their mini summaries go into the prompt, the long ones are files in library/.
     earlier = library.snapshot(ctx.job_dir, ctx.settings.episodes_dir)
-    follows = library.episode(ctx.settings.episodes_dir, opts.follows)
 
     prompt = render_stage(
         "script",
@@ -96,7 +95,7 @@ async def run(ctx) -> None:
         papers=papers,
         clarifications=clarify.answers_text(ctx.job_dir),
         library=earlier,
-        follows=follows,
+        **library.prompt_context(ctx.settings, ctx.job_dir.name, opts),
         **{**ctx.prompt_context, "language_name": opts.language.english_name},
     )
     session_id = None

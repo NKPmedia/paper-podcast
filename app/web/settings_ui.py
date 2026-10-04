@@ -58,6 +58,9 @@ SECTIONS: tuple[Section, ...] = (
               help="Plant die Recherche, wählt die Paper und liest sie im Volltext. " + MODELS),
         Field("script_model", "Modell für Skript und Handout", help=MODELS),
         Field("claude_max_turns_script", "Max. Runden pro Skript-Aufruf", "int", min=5, max=200),
+        Field("claude_max_parallel", "Parallele Claude-Aufrufe (Scouts)", "int", min=1, max=6,
+              help="Jeder Aufruf braucht etwa 300–500 MB RAM und alle teilen sich das Nutzungslimit. "
+                   "Bei 4 GB RAM sind 3 sicher; weitere Scouts warten, bis einer fertig ist."),
     )),
     Section("voices", "Stimmen", "Welche Sprachausgabe die Episoden spricht.", (
         Field("tts_provider", "Sprachausgabe", "select", options=(

@@ -31,7 +31,8 @@ from app.errors import split_error
 from app.db import JobStore
 from app.jobs import ContextFactory, JobError, JobService, Worker
 from app.episode_log import call_tokens, fmt_tokens, read_log, timeline, token_totals
-from app.models import EpisodeOptions, EpisodeRequest, Language, Length, ResearchDepth
+from app.models import Audience, EpisodeOptions, EpisodeRequest, Language, Length, ResearchDepth
+from app.series import SeriesError, SeriesStore
 from app.pipeline import clarify
 from app.pipeline.research import PROFILES, depth_hint
 from app import library
@@ -63,6 +64,10 @@ DEPTH_OPTIONS = {
     for depth in ResearchDepth
 }
 LANGUAGE_LABELS = {"de": "Deutsch", "en": "Englisch"}
+AUDIENCE_LABELS = {
+    "regular": "Ich kenne die bisherigen Folgen – Bekanntes nur kurz auffrischen, dafür tiefer einsteigen",
+    "newcomer": "Für Neueinsteiger – alles erklären, auch was frühere Folgen schon erklärt haben",
+}
 BLOCK_TITLES = {
     "personas": "Sprecher", "style": "Stil", "structure": "Aufbau", "research": "Recherche",
     "script_rules": "Sprechregeln", "handout": "Handout", "system": "Grundregeln",
@@ -131,6 +136,7 @@ def create_app(
     store = JobStore(settings.db_path)
     prompts = PromptStore(settings.prompts_dir)
     skills = SkillStore(settings.skills_dir, settings.data_dir / "skills.json")
+    series_store = SeriesStore(settings.series_path, settings.episodes_dir)
     service = JobService(settings, store, prompts)
     worker = Worker(service, context_factory)
     throttle = LoginThrottle()
@@ -436,13 +442,14 @@ def create_app(
         }
 
     @app.get("/")
-    async def index(request: Request, topic: str = "", follows: str = ""):
+    async def index(request: Request, topic: str = "", follows: str = "", series: str = ""):
         require_user(request)
         parent = library.episode(settings.episodes_dir, follows)
         return render(
             request, "index.html",
             prefill={"topic": topic[:2000], "follows": follows if parent else "",
-                     "follows_title": (parent or {}).get("title", "")},
+                     "follows_title": (parent or {}).get("title", ""), "series": series},
+            audiences=AUDIENCE_LABELS, all_series=series_store.all(), parts=series_store.parts_by_episode(),
             jobs=store.list(100),
             lengths=LENGTH_LABELS, depths=DEPTH_OPTIONS, languages=LANGUAGE_LABELS,
             blocks=BLOCK_DESCRIPTIONS, block_titles=BLOCK_TITLES,
@@ -482,8 +489,14 @@ def create_app(
                 block_overrides=block_overrides,
                 extra_skills=[str(s) for s in form.getlist("extra_skills")],
                 follows=follows_id(str(form.get("follows", ""))),
+                audience=Audience(form.get("audience", "regular")),
             )
+            series_id = str(form.get("series", ""))
+            if series_id and not series_store.get(series_id):
+                raise ValueError("Die gewählte Reihe gibt es nicht mehr.")
             job = service.submit(EpisodeRequest(topic=topic, options=options), origin="web")
+            if series_id:  # before the next await, so the worker sees it from the start
+                series_store.add_episode(series_id, job.id)
         except (ValueError, KeyError, TemplateSyntaxError, UndefinedError) as exc:
             flash(request, f"Konnte die Episode nicht anlegen: {exc}", "error")
             return redirect("/")
@@ -544,6 +557,10 @@ def create_app(
             stage_names=job_stages,
             memory=library.load_memory(job_dir),
             links=library.links(settings.episodes_dir, job_id),
+            audiences=AUDIENCE_LABELS,
+            series=(in_series := series_store.of_episode(job_id)),
+            series_parts=[(i, store.get(i)) for i in in_series[0]["episodes"]] if in_series else [],
+            all_series=series_store.all(),
         )
 
     @app.get("/episodes/{job_id}/status.json")
@@ -629,16 +646,81 @@ def create_app(
         parent = service.request(job_id).options
         options = EpisodeOptions(
             length=parent.length, research_depth=parent.research_depth, handout=parent.handout,
-            language=parent.language, clarify=parent.clarify, follows=follows_id(job_id),
+            language=parent.language, clarify=parent.clarify, follows=follows_id(job_id), audience=parent.audience,
         )
         new_job = service.submit(EpisodeRequest(topic=suggestions[index]["topic"], options=options), origin="web")
+        if in_series := series_store.of_episode(job_id):  # a follow-up of a series part continues the series
+            series_store.add_episode(in_series[0]["id"], new_job.id)
         flash(request, f"Folgeepisode „{suggestions[index]['title']}“ angelegt.")
         return redirect(f"/episodes/{new_job.id}")
+
+    @app.post("/episodes/{job_id}/series")
+    async def episode_series(request: Request, job_id: str):
+        """Add the episode to a series (existing or new), or take it out of its series."""
+        require_user(request)
+        form = await request.form()
+        check_csrf(request, form.get("csrf", ""))
+        if store.get(job_id) is None:
+            return redirect("/")
+        try:
+            if form.get("action") == "remove":
+                series_store.remove_episode(job_id)
+                flash(request, "Die Folge gehört jetzt zu keiner Reihe mehr.")
+            elif form.get("action") in ("up", "down"):
+                found = series_store.of_episode(job_id)
+                if found:
+                    series_store.move(found[0]["id"], job_id, -1 if form.get("action") == "up" else 1)
+            elif str(form.get("series", "")) == "new":
+                series_store.create(str(form.get("title", "")), str(form.get("arc", "")), [job_id])
+                flash(request, "Reihe angelegt. Folgeepisoden dieser Folge setzen die Reihe fort.")
+            else:
+                series_store.add_episode(str(form.get("series", "")), job_id)
+                flash(request, "Folge zur Reihe hinzugefügt.")
+        except SeriesError as exc:
+            flash(request, str(exc), "error")
+        target = str(form.get("next", ""))
+        return redirect(target if target.startswith("/") and not target.startswith("//") else f"/episodes/{job_id}")
+
+    @app.get("/series")
+    async def series_page(request: Request):
+        require_user(request)
+        return render(request, "series.html", all_series=series_store.all(), jobs={j.id: j for j in store.list(1000)})
+
+    @app.post("/series")
+    async def series_create(request: Request):
+        require_user(request)
+        form = await request.form()
+        check_csrf(request, form.get("csrf", ""))
+        try:
+            series_store.create(str(form.get("title", "")), str(form.get("arc", "")))
+            flash(request, "Reihe angelegt. Wähle sie beim Erstellen einer Episode aus, um den ersten Teil zu starten.")
+        except SeriesError as exc:
+            flash(request, str(exc), "error")
+        return redirect("/series")
+
+    @app.post("/series/{series_id}")
+    async def series_update(request: Request, series_id: str):
+        require_user(request)
+        form = await request.form()
+        check_csrf(request, form.get("csrf", ""))
+        try:
+            if form.get("action") == "delete":
+                series_store.delete(series_id)
+                flash(request, "Reihe aufgelöst – die Folgen bleiben erhalten.")
+            else:
+                series_store.update(series_id, str(form.get("title", "")), str(form.get("arc", "")))
+                flash(request, "Reihe gespeichert.")
+        except SeriesError as exc:
+            flash(request, str(exc), "error")
+        return redirect("/series")
 
     @app.post("/episodes/{job_id}/delete")
     async def delete(request: Request, job_id: str):
         await job_action(request, job_id, lambda form: service.delete(job_id))
-        return redirect("/" if store.get(job_id) is None else f"/episodes/{job_id}")
+        if store.get(job_id) is None:
+            series_store.remove_episode(job_id)
+            return redirect("/")
+        return redirect(f"/episodes/{job_id}")
 
     # --- connections ------------------------------------------------------------------
 

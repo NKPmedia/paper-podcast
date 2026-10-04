@@ -254,6 +254,27 @@ testable and resumable.
 - Non-fatal: if this step fails, the episode is still done; "ab Verknüpfung neu
   erzeugen" (also for older episodes) runs only this step.
 
+### Prior knowledge and series
+- `options.audience`: `regular` (default; the listener knows the earlier episodes, so
+  concepts explained there are refreshed in a sentence or two with a callback to the
+  old analogy, and the time goes into depth) or `newcomer` (everything explained,
+  earlier episodes only as pointers). The library lines carry each episode's key
+  concepts so the script can tell what was explained already.
+- Series (`<data>/series.json`, page "Reihen"): title, common thread (arc) and the
+  ordered parts. Part n gets the arc, the earlier parts' mini summaries and the
+  previous part's reference summary, opens with a short "previously on", and ends
+  with a teaser. The first follow-up suggestion of a part is the next part, and
+  "Folge erstellen" on a part continues the series.
+
+### Robustness
+- Claude failures are classified; transient ones (rate limit, overload, network,
+  killed process, unknown crash) are retried after 30 s and 90 s. At most
+  `claude_max_parallel` (default 3) Claude processes run at once.
+- Edge TTS waits out throttling (5–120 s between up to 6 attempts) and cancels the
+  remaining requests when a line finally fails; finished clips are kept.
+- Stage and scout failures log the full technical details, since the job's error
+  field is cleared on resume.
+
 ## 5. Customizable prompts
 
 - Defaults ship in the image: `app/prompts/defaults/*.md` (Jinja2).

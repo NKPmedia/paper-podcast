@@ -91,6 +91,18 @@ def snapshot(job_dir: Path, episodes_dir: Path) -> list[dict]:
     return library
 
 
+def prompt_context(settings, job_id: str, options) -> dict:
+    """Earlier episodes, the followed-up episode and the series, for the plan and script prompts."""
+    from app.series import SeriesStore, prompt_context as series_context
+
+    episodes_dir = settings.episodes_dir
+    series = series_context(SeriesStore(settings.series_path, episodes_dir), episodes_dir, job_id)
+    follows = episode(episodes_dir, options.follows)
+    if follows and series and series["previous"] and series["previous"]["id"] == follows["id"]:
+        follows = None  # the series section already brings the previous part in full
+    return {"follows": follows, "series": series, "audience": options.audience.value}
+
+
 def links(episodes_dir: Path, episode_id: str) -> dict:
     """Links of one episode: the episodes it builds on or mentions, and those that mention it."""
     own = load_memory(episodes_dir / episode_id) or {}

@@ -22,6 +22,15 @@ class PodcastError(RuntimeError):
         return self.message
 
 
+def log_text(exc: BaseException, limit: int = 4000) -> str:
+    """Message plus technical details for the episode log (the job error is replaced on resume)."""
+    text = f"{type(exc).__name__}: {exc}"
+    details = getattr(exc, "details", "")
+    if details:
+        text += f"\n\n{details}"
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
 def format_error(exc: BaseException, stage_label: str = "") -> str:
     """The text stored for a failed job: a short summary, then the raw error and the stack trace."""
     if isinstance(exc, PodcastError):

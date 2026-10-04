@@ -22,7 +22,18 @@ Plan research that goes beyond it; the basics it explained only need a short rem
 
 {% for e in library %}- {{ e.title }}: {{ e.mini }}
 {% endfor %}
-Where the request overlaps an earlier episode, the new episode can refer back to it instead of covering the same ground again, so spend the research on what is new.
+{% if audience == "newcomer" %}The episode is for newcomers and must stand on its own, but where the request overlaps an earlier episode, the research can lean on it and focus on what is new.{% else %}The listener has heard these episodes. Where the request overlaps one of them, the new episode only refreshes that ground briefly, so spend the research on what is new and on going deeper.{% endif %}
+{% endif %}{% if series %}
+# This episode is part {{ series.part }} of the series "{{ series.title }}"
+{% if series.arc %}
+Common thread: {{ series.arc }}
+{% endif %}{% for e in series.earlier %}- Part {{ loop.index }}: {{ e.title }}: {{ e.mini }}
+{% endfor %}{% if series.previous %}
+The part right before this one covered:
+
+{{ series.previous.reference }}
+{% endif %}
+Plan the research so this part moves the series forward along its common thread, building on the earlier parts rather than repeating them.
 {% endif %}
 # General research guidance
 
