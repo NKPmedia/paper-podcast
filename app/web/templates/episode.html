@@ -35,8 +35,9 @@
     <fieldset>
       <legend>{{ loop.index }}. {{ q.question }}</legend>
       {% for option in q.options %}
-      <label class="check"><input type="radio" name="q{{ qi }}" value="{{ option }}" {% if loop.first %}checked{% endif %}> {{ option }}</label>
+      <label class="check"><input type="radio" name="q{{ qi }}" value="{{ option }}"> {{ option }}</label>
       {% endfor %}
+      {% if q.options %}<label class="check muted"><input type="radio" name="q{{ qi }}" value="" checked> Keine Vorgabe – Claude entscheidet</label>{% endif %}
       {% if q.allow_free_text %}
       <label>{% if q.options %}Oder eigene Antwort{% else %}Deine Antwort{% endif %} <span class="hint">optional</span>
         <input name="q{{ qi }}_text" maxlength="1000">

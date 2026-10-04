@@ -109,9 +109,11 @@ def test_web_answer_form(web_settings):  # noqa: F811
         page = client.get(f"/episodes/{job_id}")
         assert "Rückfragen von Claude" in page.text and "Welches Mamba ist gemeint?" in page.text
         assert 'name="q0_text"' in page.text and 'name="q1_text"' not in page.text  # free text only where allowed
+        assert 'name="q0" value="" checked' in page.text  # nothing preselected: untouched means Claude decides
+        assert 'value="Die Schlange" checked' not in page.text
 
         client.post(f"/episodes/{job_id}/answers", data={
-            "csrf": csrf(client, f"/episodes/{job_id}"), "q0": "Die Schlange", "q0_text": "", "q1": "Einsteiger"})
+            "csrf": csrf(client, f"/episodes/{job_id}"), "q0": "Die Schlange", "q0_text": "", "q1": ""})
         for _ in range(200):
             status = client.get(f"/episodes/{job_id}/status.json").json()
             if status["status"] == "done":
@@ -120,6 +122,8 @@ def test_web_answer_form(web_settings):  # noqa: F811
         assert status["status"] == "done"
         page = client.get(f"/episodes/{job_id}")
         assert "Rückfragen (2)" in page.text and "Die Schlange" in page.text and "Antworten erhalten" in page.text
+        answers = clarify.load(web_settings.episodes_dir / job_id)["answers"]
+        assert [a["answer"] for a in answers] == ["Die Schlange", ""]  # the untouched question is left to Claude
 
 
 def _ctx(env, job_dir, responses=None, claude=None):
@@ -130,3 +134,27 @@ def _ctx(env, job_dir, responses=None, claude=None):
                        tts=FakeTTS())
     ctx.download_options = mock_downloads()
     return ctx
+
+
+async def test_answers_elsewhere_end_other_telegram_sessions(env):  # noqa: F811
+    other = 777
+    env.bot.settings = env.settings.model_copy(update={"telegram_allowed_chat_ids": f"{CHAT},{other}"})
+    env.worker.context_factory = lambda d: _ctx(env, d, responses_with_questions())
+    job = env.service.submit(EpisodeRequest(topic="Mamba", options=SHORT), origin="web")
+    assert (await run_next(env)).status == "waiting"
+    await env.bot.start_questions(CHAT, env.store.get(job.id))
+    await env.bot.start_questions(other, env.store.get(job.id))
+
+    await env.bot.handle_callback(CHAT, env.bot.sessions[CHAT].message_id, "cb", "q:0:x")  # skip all in one chat
+    assert env.store.get(job.id).status == "queued" and env.bot.sessions == {}
+    await env.bot.handle_text(other, "Neues Thema: Quantencomputer")  # a normal new episode again
+    assert "<b>Neue Episode</b>" in env.m.sent[-1]["text"]
+
+    # Answered in the web UI while a Telegram session is open: the session no longer eats text.
+    await env.service.cancel(job.id)
+    job2 = env.service.submit(EpisodeRequest(topic="Mamba 2", options=SHORT), origin="web")
+    assert (await run_next(env)).status == "waiting"
+    await env.bot.start_questions(CHAT, env.store.get(job2.id))
+    env.service.answer(job2.id, [])
+    await env.bot.handle_text(CHAT, "Noch ein Thema")
+    assert "<b>Neue Episode</b>" in env.m.sent[-1]["text"] and CHAT not in env.bot.sessions

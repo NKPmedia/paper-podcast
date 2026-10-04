@@ -402,3 +402,20 @@ async def test_later_agents_are_told_what_they_do_not_see(settings):
     (script,) = claude.calls_for("Script")
     assert "papers/arxiv_2401.00001.appendix.md" in script.prompt
     assert "During the research its complete main text was read." in script.prompt
+
+
+async def test_plan_with_too_few_scouts_is_retried_then_filled(settings):
+    from tests.conftest import PLAN
+
+    one_task = {**PLAN, "tasks": PLAN["tasks"][:1]}
+    responses = default_responses()
+    responses["ResearchPlan"] = [one_task, one_task]  # asked twice, still one task
+    responses["ScoutResult"] = [default_responses()["ScoutResult"][0]] * 5
+    claude = FakeClaude(responses)
+    job_dir = job(settings, ResearchDepth.deep)  # needs at least 3 scouts
+    await run_pipeline(ctx_for(settings, job_dir, claude))
+    retry = claude.calls_for("ResearchPlan")[1]
+    assert retry.resume and "needs at least 3" in retry.prompt
+    plan = json.loads((job_dir / "plan.json").read_text())
+    assert [t["title"] for t in plan["tasks"]] == ["Core work", "Critique and replications", "Foundations"]
+    assert len(claude.calls_for("ScoutResult")) == 3

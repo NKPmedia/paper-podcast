@@ -32,6 +32,7 @@ from app.models import (
     ResearchPlan,
     ResearchResult,
     ScoutResult,
+    ScoutTask,
     SelectedPaper,
     Selection,
     json_schema,
@@ -140,15 +141,47 @@ async def make_plan(ctx, profile: DepthProfile) -> ResearchPlan:
         output_schema=json_schema(ResearchPlan), max_turns=3, model=model,
     ))
     plan = ResearchPlan.model_validate(result.structured)
+    if len(plan.tasks) < profile.min_scouts:  # the depth promises at least this many perspectives: ask once more
+        _log_claude(ctx, "plan", model, result, scouts=len(plan.tasks), retry=True)
+        result = await ctx.claude.run(ClaudeCall(
+            prompt=f"The plan has {len(plan.tasks)} scout task(s), but this research depth needs at least "
+                   f"{profile.min_scouts}, each a distinct perspective. Return the complete plan again with "
+                   f"between {profile.min_scouts} and {profile.max_scouts} tasks.",
+            cwd=ctx.job_dir, tools=[], system_append=ctx.blocks["system"],
+            output_schema=json_schema(ResearchPlan), max_turns=3, model=model, resume=result.session_id,
+        ))
+        plan = ResearchPlan.model_validate(result.structured)
     if not plan.tasks:
         raise PodcastError("Claude hat keinen Rechercheplan erstellt. Mit „Fortsetzen“ erneut versuchen.",
                            f"plan without tasks: {result.structured}")
+    titles = {t.title.lower() for t in plan.tasks}
+    for task in FALLBACK_TASKS:  # still too few: add standard perspectives
+        if len(plan.tasks) >= profile.min_scouts:
+            break
+        if task.title.lower() not in titles:
+            plan.tasks.append(task)
     plan.tasks = plan.tasks[: profile.max_scouts]
     plan.key_questions = plan.key_questions[:8]
     _log_claude(ctx, "plan", model, result, scouts=len(plan.tasks), questions=len(plan.key_questions))
     ctx.log.write("plan", stage=NAME, focus=plan.focus, scouts=[t.title for t in plan.tasks],
                   key_questions=plan.key_questions)
     return plan
+
+
+# Standard perspectives, used only when the plan has fewer tasks than the depth requires.
+FALLBACK_TASKS = [
+    ScoutTask(title="Critique and replications",
+              objective="Find critique, replications, limitations and opposing views of the core work.",
+              search_hints="the core paper's title plus critique, replication, limitations; OpenReview",
+              avoid="the core paper itself"),
+    ScoutTask(title="Foundations",
+              objective="Find the earlier work the topic builds on: classics, foundations, surveys.",
+              search_hints="survey, review, the methods the core work cites", avoid="recent follow-up work"),
+    ScoutTask(title="Follow-up and recent work",
+              objective="Find influential follow-up work (who cites the core paper) and preprints of the last two years.",
+              search_hints="Semantic Scholar citations of the core paper, sorted by influence or date",
+              avoid="foundations and critique"),
+]
 
 
 def task_ids(plan: ResearchPlan) -> list[str]:

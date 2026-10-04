@@ -168,6 +168,9 @@ class TelegramBot:
         if not await self.check_access(chat_id):
             return
         session = self.sessions.get(chat_id)
+        if session and not self._still_waiting(session):
+            self.sessions.pop(chat_id, None)  # answered elsewhere (another chat, the web UI): normal text again
+            session = None
         if session and session.index < len(session.questions):
             if session.questions[session.index].get("allow_free_text", True):
                 await self._record_answer(chat_id, session, text.strip())
@@ -453,8 +456,13 @@ class TelegramBot:
         text, keyboard = self._question_view(job, session)
         await self.messenger.edit_text(chat_id, session.message_id, text, keyboard)
 
+    def _still_waiting(self, session: AnswerSession) -> bool:
+        job = self.store.get(session.job_id)
+        return job is not None and job.status == "waiting"
+
     async def _finish_questions(self, chat_id: int, session: AnswerSession) -> None:
-        self.sessions.pop(chat_id, None)
+        for other in [c for c, s in self.sessions.items() if s.job_id == session.job_id]:
+            self.sessions.pop(other, None)  # every chat asked about this job is done with it
         try:
             self.service.answer(session.job_id, session.answers)
         except (JobError, ValueError) as exc:
