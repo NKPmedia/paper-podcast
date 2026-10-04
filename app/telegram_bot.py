@@ -35,7 +35,7 @@ Keyboard = list[list[Button]]
 
 MAX_AUDIO_BYTES = 49 * 1024 * 1024  # Bot API upload limit is 50 MB
 STAGE_LABELS = {"research": "Recherche", "script": "Skript", "handout": "Handout", "tts": "Sprachausgabe",
-                "audio": "Audio"}
+                "audio": "Audio", "memory": "Verknüpfung"}
 LENGTH_LABELS = {"kurz": "Kurz (~5 min)", "mittel": "Mittel (~12 min)", "lang": "Lang (~25 min)"}
 LENGTH_BUTTONS = {"kurz": "Kurz · 5 min", "mittel": "Mittel · 12 min", "lang": "Lang · 25 min"}
 DEPTH_LABELS = {"quick": "Schnell", "medium": "Normal", "deep": "Gründlich"}

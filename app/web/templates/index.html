@@ -10,8 +10,12 @@
   <h1>Neue Episode</h1>
   <form method="post" action="/episodes">
     <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% if prefill.follows %}
+    <input type="hidden" name="follows" value="{{ prefill.follows }}">
+    <p class="hint">Folgeepisode zu <a href="/episodes/{{ prefill.follows }}">{{ prefill.follows_title }}</a> – sie knüpft daran an, statt die Grundlagen zu wiederholen.</p>
+    {% endif %}
     <label>Thema oder Paper
-      <textarea name="topic" rows="3" required placeholder="z.B. „Das Mamba-Paper von Gu und Dao“ oder „Neue Entwicklungen bei Festkörperbatterien“"></textarea>
+      <textarea name="topic" rows="3" required placeholder="z.B. „Das Mamba-Paper von Gu und Dao“ oder „Neue Entwicklungen bei Festkörperbatterien“">{{ prefill.topic }}</textarea>
     </label>
     <div class="row">
       <label>Länge

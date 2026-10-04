@@ -1,4 +1,4 @@
-"""Episode generation pipeline: research → script → tts → audio.
+"""Episode generation pipeline: research → script → handout → tts → audio → memory.
 
 Every stage writes its artifacts into the job directory and is skipped when they
 already exist, so an interrupted job resumes where it stopped and a single stage
@@ -154,12 +154,12 @@ def load_context(
 
 
 def _stages():
-    from app.pipeline import audio, handout, research, script, speech
+    from app.pipeline import audio, handout, memory, research, script, speech
 
-    return [research, script, handout, speech, audio]
+    return [research, script, handout, speech, audio, memory]
 
 
-STAGE_NAMES = ["research", "script", "handout", "tts", "audio"]
+STAGE_NAMES = ["research", "script", "handout", "tts", "audio", "memory"]
 # The file whose existence marks a stage as finished.
 STAGE_ARTIFACTS = {
     "research": "research.md",
@@ -167,6 +167,7 @@ STAGE_ARTIFACTS = {
     "handout": "handout.pdf",
     "tts": "clips/manifest.json",
     "audio": "episode.mp3",
+    "memory": "memory.json",
 }
 
 

@@ -91,6 +91,8 @@ Every job has its own directory `data/episodes/<id>/`:
 ```
 .claude/skills/   snapshot of the skills enabled for this job
 request.json      topic + options + resolved prompt blocks
+library/        long summaries of earlier episodes (snapshot for the script)
+memory.json       mini + reference summary, key concepts, follow-up suggestions
 research.md       research notes (Claude)
 sources.json      [{title, authors, year, url, why_relevant}]
 script.json       validated dialogue script
@@ -234,6 +236,23 @@ testable and resumable.
 - Two-pass `loudnorm` to −16 LUFS; mono MP3, 64–96 kbps. A 25-minute episode is about
   15 MB, well under Telegram's 50 MB bot upload limit.
 - ID3 tags (title, date, description with sources), chapter markers, cover image.
+
+### Stage 6 — Memory and follow-ups (podcast memory)
+- After the audio, Claude reads the finished script and writes `memory.json`:
+  - `mini_summary`: one sentence; **only this** goes into later prompts, for every
+    earlier episode (newest 60).
+  - `reference_summary`: 200–400 words for a later script writer — claims and numbers,
+    which concepts were explained and with which analogies, terms, open questions.
+  - `key_concepts` and up to 5 `follow_ups` (title, topic, why).
+- The plan and script prompts list the earlier episodes (mini summaries). The script
+  stage copies the long summaries to `library/<id>.md`; Claude reads only the ones it
+  refers to and lists them in the script's `episode_references` (validated IDs).
+- A follow-up episode (`options.follows`) gets its parent's long summary in full and
+  opens with a short callback instead of repeating the basics.
+- The web UI shows the suggestions ("Folge erstellen" with the same options, or
+  "Anpassen" to prefill the form) and the links in both directions.
+- Non-fatal: if this step fails, the episode is still done; "ab Verknüpfung neu
+  erzeugen" (also for older episodes) runs only this step.
 
 ## 5. Customizable prompts
 

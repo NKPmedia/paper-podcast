@@ -9,6 +9,20 @@ Additional requests: {{ extra_instructions }}
 # Answers from the listener
 
 {{ clarifications }}
+{% endif %}{% if follows %}
+# This episode continues an earlier one
+
+The listener asked for this as a follow-up to the episode "{{ follows.title }}". What it covered:
+
+{{ follows.reference }}
+
+Plan research that goes beyond it; the basics it explained only need a short reminder in the new episode.
+{% endif %}{% if library %}
+# Earlier episodes of this podcast
+
+{% for e in library %}- {{ e.title }}: {{ e.mini }}
+{% endfor %}
+Where the request overlaps an earlier episode, the new episode can refer back to it instead of covering the same ground again, so spend the research on what is new.
 {% endif %}
 # General research guidance
 

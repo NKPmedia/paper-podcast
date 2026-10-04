@@ -84,6 +84,44 @@
 </section>
 {% endif %}
 
+{% if episode and not job.active %}
+{% if memory and memory.follow_ups %}
+<section class="card">
+  <h2>Wie geht's weiter?</h2>
+  <p class="hint">Vorschläge für Folgeepisoden. Sie knüpfen an diese Folge an und übernehmen Länge, Recherche-Tiefe, Sprache und Handout.</p>
+  <ol class="follow-ups">
+    {% for f in memory.follow_ups %}
+    <li><strong>{{ f.title }}</strong><br><span class="muted">{{ f.why }}</span>
+      <div class="actions">
+        <form method="post" action="/episodes/{{ job.id }}/follow-ups/{{ loop.index0 }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="primary">Folge erstellen</button></form>
+        <a href="/?topic={{ f.topic | urlencode }}&amp;follows={{ job.id | urlencode }}">Anpassen …</a>
+      </div></li>
+    {% endfor %}
+  </ol>
+</section>
+{% elif not memory %}
+<section class="card">
+  <h2>Wie geht's weiter?</h2>
+  <p class="hint">Für diese Folge gibt es noch keine Zusammenfassung fürs Podcast-Gedächtnis und keine Vorschläge für Folgeepisoden.</p>
+  <form method="post" action="/episodes/{{ job.id }}/retry"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="from_stage" value="memory"><button>Jetzt erzeugen</button></form>
+</section>
+{% endif %}
+{% if links.outgoing or links.incoming or (memory and memory.key_concepts) %}
+<section class="card">
+  <h2>Verknüpfte Folgen</h2>
+  {% if links.outgoing %}
+  <p><strong>Baut auf auf</strong></p>
+  <ul>{% for l in links.outgoing %}<li><a href="/episodes/{{ l.id }}">{{ l.title }}</a>{% if l.kind == "follows" %} <span class="badge">Fortsetzung</span>{% endif %}{% if l.how %}<br><span class="muted">{{ l.how }}</span>{% endif %}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if links.incoming %}
+  <p><strong>Später aufgegriffen in</strong></p>
+  <ul>{% for l in links.incoming %}<li><a href="/episodes/{{ l.id }}">{{ l.title }}</a>{% if l.kind == "follows" %} <span class="badge">Fortsetzung</span>{% endif %}{% if l.how %}<br><span class="muted">{{ l.how }}</span>{% endif %}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if memory and memory.key_concepts %}<p class="hint">Schlüsselbegriffe: {{ memory.key_concepts | join(" · ") }}</p>{% endif %}
+</section>
+{% endif %}
+{% endif %}
+
 {% if tokens.calls or claude_calls %}
 <section class="card usage">
   <h2>Claude-Nutzung{% if job.active %} bisher{% endif %}</h2>
@@ -216,7 +254,7 @@
   <form method="post" action="/episodes/{{ job.id }}/retry" class="inline-select" data-confirm="Die gewählten Schritte und alle danach werden neu erzeugt, die bisherige Fassung wird ersetzt. Fortfahren?">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label class="sr-only" for="from_stage">Neu erzeugen ab</label>
-    <select name="from_stage" id="from_stage">{% for s in stage_names %}<option value="{{ s }}" {% if s == "script" %}selected{% endif %}>ab {{ stage_labels[s] }}{% if s == "research" %} (komplett neu, dauert am längsten){% endif %}</option>{% endfor %}</select>
+    <select name="from_stage" id="from_stage">{% for s in stage_names %}<option value="{{ s }}" {% if s == "script" %}selected{% endif %}>ab {{ stage_labels[s] }}{% if s == "research" %} (komplett neu, dauert am längsten){% elif s == "memory" %} (nur Zusammenfassung und Vorschläge){% endif %}</option>{% endfor %}</select>
     <button>Neu erzeugen</button>
   </form>
   <form method="post" action="/episodes/{{ job.id }}/delete" data-confirm="Episode samt allen Dateien endgültig löschen?"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Episode löschen</button></form>

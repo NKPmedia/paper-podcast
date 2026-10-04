@@ -34,6 +34,7 @@ from app.episode_log import call_tokens, fmt_tokens, read_log, timeline, token_t
 from app.models import EpisodeOptions, EpisodeRequest, Language, Length, ResearchDepth
 from app.pipeline import clarify
 from app.pipeline.research import PROFILES, depth_hint
+from app import library
 from app.pipeline import STAGE_ARTIFACTS, prompt_context, slugify, stages_for
 from app.prompts import BLOCK_DESCRIPTIONS, PromptStore
 from app.skills import STAGES as SKILL_STAGES
@@ -44,7 +45,8 @@ from app.web.connectors import base_url, register_feed
 log = logging.getLogger(__name__)
 
 WEB_DIR = Path(__file__).resolve().parent
-STAGE_LABELS = {"research": "Recherche", "script": "Skript", "handout": "Handout", "tts": "Sprachausgabe", "audio": "Audio"}
+STAGE_LABELS = {"research": "Recherche", "script": "Skript", "handout": "Handout", "tts": "Sprachausgabe", "audio": "Audio",
+                "memory": "Verknüpfung"}
 STATUS_LABELS = {
     "queued": "Wartet",
     "running": "Läuft",
@@ -434,10 +436,13 @@ def create_app(
         }
 
     @app.get("/")
-    async def index(request: Request):
+    async def index(request: Request, topic: str = "", follows: str = ""):
         require_user(request)
+        parent = library.episode(settings.episodes_dir, follows)
         return render(
             request, "index.html",
+            prefill={"topic": topic[:2000], "follows": follows if parent else "",
+                     "follows_title": (parent or {}).get("title", "")},
             jobs=store.list(100),
             lengths=LENGTH_LABELS, depths=DEPTH_OPTIONS, languages=LANGUAGE_LABELS,
             blocks=BLOCK_DESCRIPTIONS, block_titles=BLOCK_TITLES,
@@ -476,6 +481,7 @@ def create_app(
                 extra_instructions=str(form.get("extra", "")).strip(),
                 block_overrides=block_overrides,
                 extra_skills=[str(s) for s in form.getlist("extra_skills")],
+                follows=follows_id(str(form.get("follows", ""))),
             )
             job = service.submit(EpisodeRequest(topic=topic, options=options), origin="web")
         except (ValueError, KeyError, TemplateSyntaxError, UndefinedError) as exc:
@@ -485,6 +491,10 @@ def create_app(
         flash(request, f"Episode angelegt – {waiting} Job(s) sind vor ihr in der Warteschlange." if waiting
               else "Episode angelegt – sie startet jetzt.")
         return redirect(f"/episodes/{job.id}")
+
+    def follows_id(job_id: str) -> str:
+        """Keep a follow-up link only to an existing, finished episode."""
+        return job_id if library.episode(settings.episodes_dir, job_id) else ""
 
     def load_job(job_id: str):
         job = store.get(job_id)
@@ -532,6 +542,8 @@ def create_app(
                                                     .get("research_depth", "medium"))].read_budget // 1000,
             names={"host": settings.host_name, "expert": settings.expert_name},
             stage_names=job_stages,
+            memory=library.load_memory(job_dir),
+            links=library.links(settings.episodes_dir, job_id),
         )
 
     @app.get("/episodes/{job_id}/status.json")
@@ -601,6 +613,27 @@ def create_app(
 
         await job_action(request, job_id, submit)
         return redirect(f"/episodes/{job_id}")
+
+    @app.post("/episodes/{job_id}/follow-ups/{index}")
+    async def create_follow_up(request: Request, job_id: str, index: int):
+        """Start a suggested follow-up episode with the same options as this one."""
+        require_user(request)
+        form = await request.form()
+        check_csrf(request, form.get("csrf", ""))
+        job, job_dir = load_job(job_id)
+        memory = library.load_memory(job_dir) if job else None
+        suggestions = (memory or {}).get("follow_ups", [])
+        if not 0 <= index < len(suggestions):
+            flash(request, "Diesen Vorschlag gibt es nicht (mehr).", "error")
+            return redirect(f"/episodes/{job_id}" if job else "/")
+        parent = service.request(job_id).options
+        options = EpisodeOptions(
+            length=parent.length, research_depth=parent.research_depth, handout=parent.handout,
+            language=parent.language, clarify=parent.clarify, follows=follows_id(job_id),
+        )
+        new_job = service.submit(EpisodeRequest(topic=suggestions[index]["topic"], options=options), origin="web")
+        flash(request, f"Folgeepisode „{suggestions[index]['title']}“ angelegt.")
+        return redirect(f"/episodes/{new_job.id}")
 
     @app.post("/episodes/{job_id}/delete")
     async def delete(request: Request, job_id: str):

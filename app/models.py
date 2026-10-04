@@ -50,6 +50,8 @@ class EpisodeOptions(BaseModel):
     block_overrides: dict[str, str] = Field(default_factory=dict)
     # Extra skills to enable for this request on top of the stage defaults.
     extra_skills: list[str] = Field(default_factory=list)
+    # Job ID of the earlier episode this one continues (a follow-up suggestion), or "".
+    follows: str = ""
 
 
 class EpisodeRequest(BaseModel):
@@ -156,6 +158,11 @@ class Chapter(BaseModel):
     lines: list[Line]
 
 
+class EpisodeReference(BaseModel):
+    id: str = Field(description="ID of the earlier episode, exactly as in the list of earlier episodes")
+    how: str = Field(description="One sentence in the episode language: how this episode refers to it")
+
+
 class Script(BaseModel):
     title: str = Field(description="Episode title in the episode language: short (at most 60 characters), concrete "
                                    "and intriguing; not a restatement of the topic, no colon subtitle needed")
@@ -166,6 +173,10 @@ class Script(BaseModel):
         description="Formulas, tables or figures the conversation refers to and that belong "
         "in the handout (empty when there is no handout)",
     )
+    episode_references: list[EpisodeReference] = Field(
+        default_factory=list,
+        description="Every earlier episode the dialogue refers to (empty when it refers to none)",
+    )
 
     def iter_lines(self):
         for ci, chapter in enumerate(self.chapters):
@@ -175,6 +186,33 @@ class Script(BaseModel):
     @property
     def word_count(self) -> int:
         return sum(len(line.text.split()) for _, _, line in self.iter_lines())
+
+
+# --- Episode memory (links between episodes) -----------------------------------
+
+MAX_FOLLOW_UPS = 5
+
+
+class FollowUp(BaseModel):
+    title: str = Field(description="Working title in the episode language, at most 60 characters")
+    topic: str = Field(description="The request for the new episode in the episode language, one to three "
+                                   "sentences, understandable on its own (it becomes the topic of a new episode)")
+    why: str = Field(description="One sentence in the episode language: what the listener gains, and how it "
+                                 "builds on this episode")
+
+
+class EpisodeMemory(BaseModel):
+    mini_summary: str = Field(description="English, one sentence of at most 250 characters: what the episode "
+                                          "covered, specific enough to tell whether a later topic relates to it")
+    reference_summary: str = Field(
+        description="English Markdown, 200 to 400 words, written for a later script writer who wants to refer "
+        "back to this episode: core claims and numbers, which concepts were explained and how (the analogies and "
+        "examples used), terms defined, and the questions left open"
+    )
+    key_concepts: list[str] = Field(default_factory=list, description="3 to 10 central concepts or methods, "
+                                                                       "short noun phrases in English")
+    follow_ups: list[FollowUp] = Field(default_factory=list, description=f"Up to {MAX_FOLLOW_UPS} suggested "
+                                       "follow-up episodes, the most rewarding first")
 
 
 # --- Handout ------------------------------------------------------------------

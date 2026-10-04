@@ -7,6 +7,7 @@ import re
 
 from pydantic import ValidationError
 
+from app import library
 from app.claude import ClaudeCall
 from app.models import Script, Source, json_schema
 from app.errors import PodcastError
@@ -32,8 +33,15 @@ def is_done(ctx) -> bool:
     return ctx.path("script.json").exists()
 
 
-def validate(script: Script, target_words: int, handout: bool = False) -> list[str]:
+def validate(script: Script, target_words: int, handout: bool = False,
+             known_episodes: set[str] | None = None) -> list[str]:
     problems = []
+    unknown = [r.id for r in script.episode_references if r.id not in (known_episodes or set())]
+    if unknown:
+        problems.append(
+            f"`episode_references` names unknown episodes ({', '.join(unknown)}); use only IDs from the "
+            "list of earlier episodes, or leave it empty."
+        )
     if len(script.chapters) < 2:
         problems.append("The script needs at least two chapters.")
     speakers = {line.speaker for _, _, line in script.iter_lines()}
@@ -74,6 +82,9 @@ async def run(ctx) -> None:
     sources = [Source(**s) for s in json.loads(ctx.path("sources.json").read_text(encoding="utf-8"))]
     target_words = ctx.prompt_context["target_words"]
     papers = papers_for_prompt(ctx.job_dir)  # with notes on cut text, appendix and reading depth
+    # Earlier episodes: only their mini summaries go into the prompt, the long ones are files in library/.
+    earlier = library.snapshot(ctx.job_dir, ctx.settings.episodes_dir)
+    follows = library.episode(ctx.settings.episodes_dir, opts.follows)
 
     prompt = render_stage(
         "script",
@@ -84,6 +95,8 @@ async def run(ctx) -> None:
         sources=sources,
         papers=papers,
         clarifications=clarify.answers_text(ctx.job_dir),
+        library=earlier,
+        follows=follows,
         **{**ctx.prompt_context, "language_name": opts.language.english_name},
     )
     session_id = None
@@ -105,7 +118,7 @@ async def run(ctx) -> None:
         session_id = result.session_id
         try:
             script = Script.model_validate(result.structured)
-            problems = validate(script, target_words, ctx.request.options.handout)
+            problems = validate(script, target_words, opts.handout, {e["id"] for e in earlier})
         except ValidationError as exc:
             script, problems = None, [f"The JSON does not match the schema: {exc}"]
         ctx.log_claude(

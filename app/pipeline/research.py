@@ -23,6 +23,7 @@ import re
 import shutil
 from dataclasses import dataclass
 
+from app import library
 from app.claude import ClaudeCall
 from app.errors import PodcastError
 from app.models import (
@@ -133,8 +134,11 @@ def load_plan(ctx) -> ResearchPlan | None:
 
 async def make_plan(ctx, profile: DepthProfile) -> ResearchPlan:
     await ctx.notify(NAME, "Claude plant die Recherche")
+    episodes_dir = ctx.settings.episodes_dir
     prompt = render_stage("plan", blocks=ctx.blocks, min_scouts=profile.min_scouts, max_scouts=profile.max_scouts,
-                          depth=ctx.request.options.research_depth.value, **_common(ctx))
+                          depth=ctx.request.options.research_depth.value,
+                          library=library.entries(episodes_dir, exclude=ctx.job_dir.name),
+                          follows=library.episode(episodes_dir, ctx.request.options.follows), **_common(ctx))
     model = ctx.settings.research_main_model
     result = await ctx.claude.run(ClaudeCall(
         prompt=prompt, cwd=ctx.job_dir, tools=[], system_append=ctx.blocks["system"],

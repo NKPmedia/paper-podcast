@@ -79,6 +79,8 @@ button.link { border: none; background: none; padding: 0; color: var(--accent); 
 form.inline { display: inline; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .actions form { margin: 0; }
+.follow-ups li { margin-bottom: 14px; }
+.follow-ups .actions { align-items: center; margin-top: 6px; }
 .inline-select { display: flex; gap: 8px; }
 .inline-select select { width: auto; margin: 0; }
 .muted, .hint, .meta { color: var(--muted); font-weight: 400; }
