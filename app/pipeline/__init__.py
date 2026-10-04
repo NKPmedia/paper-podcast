@@ -149,7 +149,7 @@ def load_context(
         settings=settings,
         skills=SkillStore(settings.skills_dir, settings.data_dir / "skills.json"),
         claude=claude or AgentSDKRunner(),
-        tts=tts or make_tts(settings, request.options.language.value),
+        tts=tts or make_tts(settings, request.options.language.value, request.options.tts),
     )
 
 

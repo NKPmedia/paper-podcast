@@ -26,7 +26,8 @@ def test_provider_selection(settings):
     with_key = settings.model_copy(update={"gemini_api_key": "k"})
     tts = make_tts(with_key)
     assert isinstance(tts, FallbackTTS) and isinstance(tts.primary, GeminiTTS)
-    assert isinstance(make_tts(with_key.model_copy(update={"tts_provider": "edge"})), EdgeTTS)
+    edge_first = make_tts(with_key.model_copy(update={"tts_provider": "edge"}))  # Gemini steps in for Edge
+    assert isinstance(edge_first.primary, EdgeTTS) and isinstance(edge_first.fallback, GeminiTTS)
 
 
 def pcm_response(seconds=0.2, rate=24000):

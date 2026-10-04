@@ -34,6 +34,7 @@ from app.jobs import ContextFactory, JobError, JobService, Worker
 from app.episode_log import call_tokens, fmt_tokens, read_log, timeline, token_totals
 from app.models import Audience, EpisodeOptions, EpisodeRequest, Language, Length, ResearchDepth
 from app.series import SeriesError, SeriesStore
+from app.tts import TTS_LABELS, resolve_tts
 from app.pipeline import clarify
 from app.pipeline.research import PROFILES, depth_hint
 from app import library
@@ -451,6 +452,7 @@ def create_app(
             prefill={"topic": topic[:2000], "follows": follows if parent else "",
                      "follows_title": (parent or {}).get("title", ""), "series": series},
             audiences=AUDIENCE_LABELS, all_series=series_store.all(), parts=series_store.parts_by_episode(),
+            tts_default=resolve_tts(settings), gemini_ready=bool(settings.gemini_api_key),
             jobs=store.list(100),
             lengths=LENGTH_LABELS, depths=DEPTH_OPTIONS, languages=LANGUAGE_LABELS,
             blocks=BLOCK_DESCRIPTIONS, block_titles=BLOCK_TITLES,
@@ -491,6 +493,7 @@ def create_app(
                 extra_skills=[str(s) for s in form.getlist("extra_skills")],
                 follows=follows_id(str(form.get("follows", ""))),
                 audience=Audience(form.get("audience", "regular")),
+                tts=str(form.get("tts", "")),
             )
             series_id = str(form.get("series", ""))
             if series_id and not series_store.get(series_id):
@@ -570,6 +573,9 @@ def create_app(
             memory=library.load_memory(job_dir),
             links=library.links(settings.episodes_dir, job_id),
             audiences=AUDIENCE_LABELS,
+            tts_used=(_read_json(job_dir / "episode.json") or {}).get("tts", ""),
+            tts_planned=resolve_tts(settings, request_data.get("request", {}).get("options", {}).get("tts", "")),
+            tts_labels=TTS_LABELS,
             series=(in_series := series_store.of_episode(job_id)),
             series_parts=[(i, store.get(i)) for i in in_series[0]["episodes"]] if in_series else [],
             all_series=series_store.all(),
@@ -659,6 +665,7 @@ def create_app(
         options = EpisodeOptions(
             length=parent.length, research_depth=parent.research_depth, handout=parent.handout,
             language=parent.language, clarify=parent.clarify, follows=follows_id(job_id), audience=parent.audience,
+            tts=parent.tts,
         )
         new_job = service.submit(EpisodeRequest(topic=suggestions[index]["topic"], options=options), origin="web")
         if in_series := series_store.of_episode(job_id):  # a follow-up of a series part continues the series
@@ -751,11 +758,13 @@ def create_app(
         )
 
     def tts_description() -> str:
-        uses_gemini = settings.tts_provider == "gemini" or (settings.tts_provider == "auto" and settings.gemini_api_key)
-        if uses_gemini and settings.gemini_api_key:
-            return (f"Gemini ({settings.gemini_tts_model}, Stimmen {settings.gemini_voice_host} / "
-                    f"{settings.gemini_voice_expert}), bei erschöpftem Kontingent automatisch Edge")
-        return f"Edge TTS (Stimmen {settings.edge_voice_host} / {settings.edge_voice_expert})"
+        gemini = f"Gemini ({settings.gemini_tts_model}, Stimmen {settings.gemini_voice_host} / {settings.gemini_voice_expert})"
+        edge = f"Edge TTS (Stimmen {settings.edge_voice_host} / {settings.edge_voice_expert})"
+        if not settings.gemini_api_key:
+            return f"{edge}, ohne Ersatz (kein Gemini-Key). Pro Episode wählbar."
+        if resolve_tts(settings) == "gemini":
+            return f"Standard: {gemini}, bei Problemen {edge}. Pro Episode wählbar."
+        return f"Standard: {edge}, bei Problemen {gemini}. Pro Episode wählbar."
 
     @app.post("/assets/{kind}")
     async def upload_asset(request: Request, kind: str, file: UploadFile, csrf: str = Form("")):

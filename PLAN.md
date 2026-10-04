@@ -21,7 +21,7 @@ Status: **all milestones implemented** (email and REST API dropped on request) �
 | Research | Always runs first; depth `quick` / `medium` (default) / `deep` per request. Parallel Haiku scouts return a ranked shortlist, Opus picks papers, our code downloads the full texts, and Opus reads all of them |
 | Length | Per request: `kurz` (~5 min), `mittel` (~12 min), `lang` (~25 min) |
 | Review | Fully automatic — no manual script approval step |
-| TTS | Free + online: **Edge TTS** by default; **Gemini TTS** (free tier) if a key is set, falling back to Edge when the quota runs out |
+| TTS | Chosen per episode (web form, Telegram): **Edge TTS** or **Gemini TTS** (free tier, needs a key); the other engine speaks the whole episode when the chosen one fails (never mixed). The settings only set the preselection |
 | Handout | Optional PDF (Markdown + matplotlib plots → PDF) |
 | Prompt editing | Named prompt blocks, editable in the web UI, reset-to-default, per-request override |
 | Skills | Claude Code Agent Skills (`SKILL.md` folders) that Claude loads on demand; bundled defaults plus your own, managed in the web UI |

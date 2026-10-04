@@ -29,6 +29,12 @@
       </label>
     </div>
     <div class="row">
+      <label>Sprachausgabe
+        <select name="tts">
+          <option value="edge" {% if tts_default == "edge" %}selected{% endif %}>Edge{% if gemini_ready %} – Gemini springt bei Problemen ein{% else %} (kostenlos){% endif %}</option>
+          <option value="gemini" {% if tts_default == "gemini" %}selected{% endif %} {% if not gemini_ready %}disabled{% endif %}>Gemini{% if gemini_ready %} – Edge springt bei Problemen ein{% else %} (erst Gemini-Key unter Einstellungen → Stimmen eintragen){% endif %}</option>
+        </select>
+      </label>
       <label>Vorwissen
         <select name="audience">{% for value, label in audiences.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>
       </label>

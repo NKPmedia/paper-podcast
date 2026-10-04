@@ -28,14 +28,31 @@ class TTSProvider(Protocol):
     async def synthesize(self, script: Script, out_dir: Path) -> list[Clip]: ...
 
 
-def make_tts(settings: Settings, language: str = "de") -> TTSProvider:
-    """``auto``: Gemini (with Edge as fallback) when GEMINI_API_KEY is set, else Edge."""
+TTS_LABELS = {"edge": "Edge", "gemini": "Gemini"}
+
+
+def resolve_tts(settings: Settings, choice: str = "") -> str:
+    """The engine an episode starts with: its own choice, else the settings default."""
+    choice = choice or settings.tts_provider
+    if choice == "auto":
+        choice = "gemini" if settings.gemini_api_key else "edge"
+    return choice if choice in TTS_LABELS else "edge"
+
+
+def make_tts(settings: Settings, language: str = "de", choice: str = "") -> TTSProvider:
+    """The chosen engine, with the other one as fallback when it fails.
+
+    Edge falls back to Gemini (only with a Gemini key); Gemini falls back to Edge.
+    Gemini chosen without a key starts with Edge right away.
+    """
     from app.tts.edge import EdgeTTS
 
     edge = EdgeTTS(settings, language)
-    use_gemini = settings.tts_provider == "gemini" or (settings.tts_provider == "auto" and settings.gemini_api_key)
-    if use_gemini and settings.gemini_api_key:
-        from app.tts.gemini import FallbackTTS, GeminiTTS
+    if not settings.gemini_api_key:
+        return edge
+    from app.tts.gemini import FallbackTTS, GeminiTTS
 
-        return FallbackTTS(GeminiTTS(settings, language=language), edge)
-    return edge
+    gemini = GeminiTTS(settings, language=language)
+    if resolve_tts(settings, choice) == "gemini":
+        return FallbackTTS(gemini, edge)
+    return FallbackTTS(edge, gemini)

@@ -63,10 +63,12 @@ SECTIONS: tuple[Section, ...] = (
                    "Bei 4 GB RAM sind 3 sicher; weitere Scouts warten, bis einer fertig ist."),
     )),
     Section("voices", "Stimmen", "Welche Sprachausgabe die Episoden spricht.", (
-        Field("tts_provider", "Sprachausgabe", "select", options=(
+        Field("tts_provider", "Vorauswahl für neue Episoden", "select", options=(
             ("auto", "Automatisch – Gemini, wenn ein Key gesetzt ist, sonst Edge"),
-            ("gemini", "Gemini (mit Edge als Ausweichlösung)"),
-            ("edge", "Edge (kostenlos, ohne Key)"))),
+            ("gemini", "Gemini (Edge springt bei Problemen ein)"),
+            ("edge", "Edge (Gemini springt bei Problemen ein, wenn ein Key gesetzt ist)")),
+              help="Beim Erstellen einer Episode kannst du die Sprachausgabe jedes Mal neu wählen. Scheitert die "
+                   "gewählte, spricht die andere die ganze Episode – Stimmen werden nie gemischt."),
         Field("gemini_api_key", "Gemini-API-Key", "secret", placeholder="AIza…",
               help="Kostenlos bei <a href=\"https://aistudio.google.com\" target=\"_blank\" rel=\"noopener\">Google "
                    "AI Studio</a>. Beide Stimmen sprechen dann natürlicher in einem Zug; ist das Tageskontingent "

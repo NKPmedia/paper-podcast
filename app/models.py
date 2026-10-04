@@ -60,6 +60,9 @@ class EpisodeOptions(BaseModel):
     # Job ID of the earlier episode this one continues (a follow-up suggestion), or "".
     follows: str = ""
     audience: Audience = Audience.regular
+    # Speech engine for this episode: "edge" or "gemini"; "" = the default from the settings.
+    # The other engine (if available) takes over when the chosen one fails.
+    tts: Literal["", "edge", "gemini"] = ""
 
 
 class EpisodeRequest(BaseModel):

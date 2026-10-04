@@ -7,7 +7,7 @@
   {% if job.title %}<p class="muted">Thema: {{ job.topic }}</p>{% endif %}
   <p class="meta">
     <span class="badge {{ job.status }}" data-field="status">{{ status_labels[job.status] }}</span>
-    {{ lengths.get(options.get("length"), "") }} · Recherche {{ depths.get(options.get("research_depth"), "") }}{% if options.get("handout") %} · mit Handout{% endif %}{% if options.get("audience") == "newcomer" %} · für Neueinsteiger{% endif %} · {{ languages.get(options.get("language", "de"), "") }}
+    {{ lengths.get(options.get("length"), "") }} · Recherche {{ depths.get(options.get("research_depth"), "") }}{% if options.get("handout") %} · mit Handout{% endif %}{% if options.get("audience") == "newcomer" %} · für Neueinsteiger{% endif %} · Stimme: {% if tts_used %}{{ tts_labels.get(tts_used, tts_used) }}{% if tts_used != tts_planned %} (Ersatz für {{ tts_labels[tts_planned] }}){% endif %}{% else %}{{ tts_labels[tts_planned] }}{% endif %} · {{ languages.get(options.get("language", "de"), "") }}
     · {{ job.created_at | time }}
   </p>
 

@@ -159,7 +159,15 @@ class GeminiTTS:
 
 
 class FallbackTTS:
-    """Try the primary provider; on quota exhaustion (or any error) use the fallback for the whole episode."""
+    """Speak with the primary engine; if it fails, the other engine speaks the whole episode.
+
+    Voices of two engines are never mixed: switching deletes the clips of the failed
+    engine. ``engine.txt`` in the clip folder remembers a switch, so "Fortsetzen"
+    goes on with the engine that took over (keeping its finished clips) and tries
+    the original one only if that fails too.
+    """
+
+    MARKER = "engine.txt"
 
     def __init__(self, primary, fallback):
         self.primary = primary
@@ -168,14 +176,34 @@ class FallbackTTS:
         self.note = ""
 
     async def synthesize(self, script: Script, out_dir: Path) -> list[Clip]:
-        try:
-            clips = await self.primary.synthesize(script, out_dir)
-            self.name = self.primary.name
+        out_dir.mkdir(parents=True, exist_ok=True)
+        marker = out_dir / self.MARKER
+        engines = [self.primary, self.fallback]
+        if marker.exists() and marker.read_text(encoding="utf-8").strip() == self.fallback.name:
+            engines.reverse()  # resumed after a switch: keep going with the engine that took over
+            self.note = f"Fortgesetzt mit {self.fallback.name} (Ersatz für {self.primary.name})"
+        errors: list[tuple[str, Exception]] = []
+        for engine in engines:
+            if errors:  # switching engines: drop the other engine's clips
+                for clip in out_dir.glob("*"):
+                    if clip.name != self.MARKER:
+                        clip.unlink()
+                marker.write_text(engine.name, encoding="utf-8")
+            try:
+                clips = await engine.synthesize(script, out_dir)
+            except Exception as exc:
+                log.warning("%s failed (%s)", engine.name, exc)
+                errors.append((engine.name, exc))
+                continue
+            self.name = engine.name
+            if errors:
+                failed, exc = errors[-1]
+                self.note = f"{failed} → {engine.name}: {getattr(exc, 'message', exc)}"
             return clips
-        except Exception as exc:
-            log.warning("%s failed (%s); falling back to %s", self.primary.name, exc, self.fallback.name)
-            self.note = f"{self.primary.name} → {self.fallback.name}: {exc}"
-            for clip in out_dir.glob("*"):  # never mix voices of two engines in one episode
-                clip.unlink()
-            self.name = self.fallback.name
-            return await self.fallback.synthesize(script, out_dir)
+        (first, first_exc), (second, second_exc) = errors
+        raise PodcastError(
+            f"Beide Sprachausgaben sind gescheitert. {first}: {getattr(first_exc, 'message', first_exc)} – "
+            f"Ersatz {second}: {getattr(second_exc, 'message', second_exc)}",
+            "\n\n".join(f"{name}: {type(exc).__name__}: {exc}\n{getattr(exc, 'details', '')}"
+                         for name, exc in errors),
+        ) from second_exc
