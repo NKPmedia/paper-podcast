@@ -17,6 +17,7 @@ from typing import Awaitable, Callable
 
 import httpx
 
+from app.tts import resolve_tts
 from app.claude import AgentSDKRunner, ClaudeCall, ClaudeRunner, claude_auth_configured
 from app.config import Settings
 from app.errors import PodcastError
@@ -117,18 +118,18 @@ class KeyChecker:
         with tempfile.TemporaryDirectory() as tmp:
             try:
                 await self.claude.run(ClaudeCall(prompt="Reply with the single word OK.", cwd=Path(tmp), tools=[],
-                                                 max_turns=1, model=model))
+                                                 max_turns=1, model=model, retry=False))
             except PodcastError as exc:
-                return CheckResult("error", exc.message)
+                return CheckResult("error", getattr(exc, "cause", exc.message))
         return CheckResult("ok", f"Token gültig – Claude antwortet (getestet mit Modell „{model}“).")
 
     async def check_gemini(self) -> CheckResult:
         s = self.settings
         if not s.gemini_api_key:
             if s.tts_provider == "gemini":
-                return CheckResult("warn", "Sprachausgabe steht auf Gemini, aber es ist kein Key eingetragen – "
-                                           "es wird Edge genutzt.")
-            return CheckResult("off", "Kein Key eingetragen – die Episoden spricht Edge.")
+                return CheckResult("warn", "Die Vorauswahl steht auf Gemini, aber es ist kein Key eingetragen – "
+                                           "es spricht Edge, ohne Ersatz bei Problemen.")
+            return CheckResult("off", "Kein Key eingetragen – die Episoden spricht Edge, ohne Ersatz bei Problemen.")
         try:
             response = await self._get(
                 f"https://generativelanguage.googleapis.com/v1beta/models/{s.gemini_tts_model}",
@@ -138,9 +139,9 @@ class KeyChecker:
             return CheckResult("error", f"Google ist nicht erreichbar: {type(exc).__name__}.")
         text = response.text[:2000]
         if response.status_code == 200:
-            if s.tts_provider == "edge":
-                return CheckResult("warn", "Key gültig, wird aber nicht genutzt (Sprachausgabe steht auf Edge).")
-            return CheckResult("ok", f"Key gültig, Modell „{s.gemini_tts_model}“ verfügbar.")
+            role = ("springt ein, wenn Edge scheitert" if resolve_tts(s) == "edge"
+                    else "ist die Vorauswahl, Edge springt bei Problemen ein")
+            return CheckResult("ok", f"Key gültig, Modell „{s.gemini_tts_model}“ verfügbar – Gemini {role}.")
         if (response.status_code == 400 and "API_KEY_INVALID" in text) or response.status_code == 401:
             return CheckResult("error", "Der Key ist ungültig. Neuen Key in Google AI Studio erzeugen.")
         if response.status_code == 403:
@@ -175,8 +176,9 @@ class KeyChecker:
         try:
             await self.edge_probe(self.settings)
         except Exception as exc:
-            serious = self.settings.tts_provider == "edge" or not self.settings.gemini_api_key
+            serious = resolve_tts(self.settings) == "edge" or not self.settings.gemini_api_key
             return CheckResult("error" if serious else "warn",
                                f"Edge-Sprachausgabe nicht erreichbar ({type(exc).__name__})"
-                               + ("" if serious else " – nur als Ausweichlösung für Gemini betroffen") + ".")
+                               + ("" if serious else " – betrifft nur Episoden, die Edge wählen, und den Ersatz für "
+                                  "Gemini") + ".")
         return CheckResult("ok", f"Edge-Sprachausgabe erreichbar (Stimme {self.settings.edge_voice_host}).")

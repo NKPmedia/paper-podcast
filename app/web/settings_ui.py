@@ -58,12 +58,17 @@ SECTIONS: tuple[Section, ...] = (
               help="Plant die Recherche, wählt die Paper und liest sie im Volltext. " + MODELS),
         Field("script_model", "Modell für Skript und Handout", help=MODELS),
         Field("claude_max_turns_script", "Max. Runden pro Skript-Aufruf", "int", min=5, max=200),
+        Field("claude_max_parallel", "Parallele Claude-Aufrufe (Scouts)", "int", min=1, max=6,
+              help="Jeder Aufruf braucht etwa 300–500 MB RAM und alle teilen sich das Nutzungslimit. "
+                   "Bei 4 GB RAM sind 3 sicher; weitere Scouts warten, bis einer fertig ist."),
     )),
     Section("voices", "Stimmen", "Welche Sprachausgabe die Episoden spricht.", (
-        Field("tts_provider", "Sprachausgabe", "select", options=(
+        Field("tts_provider", "Vorauswahl für neue Episoden", "select", options=(
             ("auto", "Automatisch – Gemini, wenn ein Key gesetzt ist, sonst Edge"),
-            ("gemini", "Gemini (mit Edge als Ausweichlösung)"),
-            ("edge", "Edge (kostenlos, ohne Key)"))),
+            ("gemini", "Gemini (Edge springt bei Problemen ein)"),
+            ("edge", "Edge (Gemini springt bei Problemen ein, wenn ein Key gesetzt ist)")),
+              help="Beim Erstellen einer Episode kannst du die Sprachausgabe jedes Mal neu wählen. Scheitert die "
+                   "gewählte, spricht die andere die ganze Episode – Stimmen werden nie gemischt."),
         Field("gemini_api_key", "Gemini-API-Key", "secret", placeholder="AIza…",
               help="Kostenlos bei <a href=\"https://aistudio.google.com\" target=\"_blank\" rel=\"noopener\">Google "
                    "AI Studio</a>. Beide Stimmen sprechen dann natürlicher in einem Zug; ist das Tageskontingent "

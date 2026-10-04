@@ -73,8 +73,22 @@ PLOT_FIX = {"plots": [{"name": "zweite", "caption": "Schematisch",
                        "code": "import numpy as np\nx = np.linspace(0, 1, 20)\nplt.plot(x, x**2)"}]}
 
 
+MEMORY = {
+    "mini_summary": "Solid-state batteries: why lithium dendrites still limit them, per Muster 2024.",
+    "reference_summary": "- Result A: 50 % faster charging [Muster 2024]\n- Analogy used: a relay race for ions",
+    "key_concepts": ["solid electrolyte", "dendrites"],
+    "follow_ups": [
+        {"title": "Dendriten im Detail", "topic": "Wie entstehen Lithium-Dendriten in Festkörperbatterien?",
+         "why": "Vertieft die größte Hürde aus dieser Folge."},
+        {"title": "Natrium statt Lithium", "topic": "Natrium-Ionen-Batterien als günstige Alternative",
+         "why": "Der Gegenentwurf zu dieser Folge."},
+    ],
+}
+
+
 def default_responses(script: dict | None = None) -> dict:
     return {
+        "EpisodeMemory": [MEMORY] * 3,
         "ClarificationRequest": [{"needs_clarification": False, "reason": "Clear topic.", "questions": []}] * 5,
         "Handout": [HANDOUT],
         "PlotFixes": [PLOT_FIX],

@@ -1,4 +1,4 @@
-"""Episode generation pipeline: research → script → tts → audio.
+"""Episode generation pipeline: research → script → handout → tts → audio → memory.
 
 Every stage writes its artifacts into the job directory and is skipped when they
 already exist, so an interrupted job resumes where it stopped and a single stage
@@ -18,7 +18,7 @@ from typing import Awaitable, Callable
 
 from app.claude import AgentSDKRunner, ClaudeRunner
 from app.config import Settings
-from app.errors import NeedsInput
+from app.errors import NeedsInput, log_text
 from app.models import EpisodeRequest
 from app.prompts import PromptStore
 from app.skills import SkillStore
@@ -149,17 +149,17 @@ def load_context(
         settings=settings,
         skills=SkillStore(settings.skills_dir, settings.data_dir / "skills.json"),
         claude=claude or AgentSDKRunner(),
-        tts=tts or make_tts(settings, request.options.language.value),
+        tts=tts or make_tts(settings, request.options.language.value, request.options.tts),
     )
 
 
 def _stages():
-    from app.pipeline import audio, handout, research, script, speech
+    from app.pipeline import audio, handout, memory, research, script, speech
 
-    return [research, script, handout, speech, audio]
+    return [research, script, handout, speech, audio, memory]
 
 
-STAGE_NAMES = ["research", "script", "handout", "tts", "audio"]
+STAGE_NAMES = ["research", "script", "handout", "tts", "audio", "memory"]
 # The file whose existence marks a stage as finished.
 STAGE_ARTIFACTS = {
     "research": "research.md",
@@ -167,6 +167,7 @@ STAGE_ARTIFACTS = {
     "handout": "handout.pdf",
     "tts": "clips/manifest.json",
     "audio": "episode.mp3",
+    "memory": "memory.json",
 }
 
 
@@ -202,7 +203,7 @@ async def run_pipeline(
             ctx.log.write("waiting", stage=stage.NAME, questions=len(exc.questions))
             raise
         except Exception as exc:
-            ctx.log.write("stage_error", stage=stage.NAME, error=f"{type(exc).__name__}: {exc}")
+            ctx.log.write("stage_error", stage=stage.NAME, error=log_text(exc))
             raise
         ctx.log.write("stage_done", stage=stage.NAME, seconds=round(time.monotonic() - started, 1))
     return ctx.path("episode.mp3")

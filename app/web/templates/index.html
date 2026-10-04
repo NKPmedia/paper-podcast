@@ -10,8 +10,12 @@
   <h1>Neue Episode</h1>
   <form method="post" action="/episodes">
     <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% if prefill.follows %}
+    <input type="hidden" name="follows" value="{{ prefill.follows }}">
+    <p class="hint">Folgeepisode zu <a href="/episodes/{{ prefill.follows }}">{{ prefill.follows_title }}</a> – sie knüpft daran an, statt die Grundlagen zu wiederholen.</p>
+    {% endif %}
     <label>Thema oder Paper
-      <textarea name="topic" rows="3" required placeholder="z.B. „Das Mamba-Paper von Gu und Dao“ oder „Neue Entwicklungen bei Festkörperbatterien“"></textarea>
+      <textarea name="topic" rows="3" required placeholder="z.B. „Das Mamba-Paper von Gu und Dao“ oder „Neue Entwicklungen bei Festkörperbatterien“">{{ prefill.topic }}</textarea>
     </label>
     <div class="row">
       <label>Länge
@@ -23,6 +27,22 @@
       <label>Sprache
         <select name="language">{% for value, label in languages.items() %}<option value="{{ value }}" {% if value == settings.default_language %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
       </label>
+    </div>
+    <div class="row">
+      <label>Sprachausgabe
+        <select name="tts">
+          <option value="edge" {% if tts_default == "edge" %}selected{% endif %}>Edge{% if gemini_ready %} – Gemini springt bei Problemen ein{% else %} (kostenlos){% endif %}</option>
+          <option value="gemini" {% if tts_default == "gemini" %}selected{% endif %} {% if not gemini_ready %}disabled{% endif %}>Gemini{% if gemini_ready %} – Edge springt bei Problemen ein{% else %} (erst Gemini-Key unter Einstellungen → Stimmen eintragen){% endif %}</option>
+        </select>
+      </label>
+      <label>Vorwissen
+        <select name="audience">{% for value, label in audiences.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>
+      </label>
+      {% if all_series %}
+      <label>Reihe <span class="hint">optional – wird der nächste Teil</span>
+        <select name="series"><option value="">Keine Reihe</option>{% for s in all_series %}<option value="{{ s.id }}" {% if s.id == prefill.series %}selected{% endif %}>{{ s.title }} (Teil {{ s.episodes | length + 1 }})</option>{% endfor %}</select>
+      </label>
+      {% endif %}
     </div>
     <label class="check"><input type="checkbox" name="clarify" checked> Rückfragen erlauben – ist das Thema unklar, fragt Claude vor der Recherche nach (bis zu 10 Fragen mit Antwortvorschlägen)</label>
     <label class="check"><input type="checkbox" name="handout"> Handout als PDF – mit Abbildungen und den Formeln, die im Gespräch nur in Worten erklärt werden</label>
@@ -57,7 +77,7 @@
     {% for job in jobs %}
     <li data-job-id="{{ job.id }}">
       <a href="/episodes/{{ job.id }}" class="job-title">{{ job.display_title }}</a>
-      <span class="meta">{{ job.created_at | time }}{% if job.duration_s %} · {{ job.duration_s | duration }} min{% endif %}</span>
+      <span class="meta">{{ job.created_at | time }}{% if job.duration_s %} · {{ job.duration_s | duration }} min{% endif %}{% if job.id in parts %} · {{ parts[job.id][0].title }}, Teil {{ parts[job.id][1] }}{% endif %}</span>
       <span class="badge {{ job.status }}" data-field="status">{{ status_labels[job.status] }}{% if job.status == "running" and job.stage %} · {{ stage_labels.get(job.stage, job.stage) }}{% endif %}</span>
     </li>
     {% endfor %}

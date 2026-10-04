@@ -7,6 +7,7 @@ import re
 
 from pydantic import ValidationError
 
+from app import library
 from app.claude import ClaudeCall
 from app.models import Script, Source, json_schema
 from app.errors import PodcastError
@@ -32,8 +33,15 @@ def is_done(ctx) -> bool:
     return ctx.path("script.json").exists()
 
 
-def validate(script: Script, target_words: int, handout: bool = False) -> list[str]:
+def validate(script: Script, target_words: int, handout: bool = False,
+             known_episodes: set[str] | None = None) -> list[str]:
     problems = []
+    unknown = [r.id for r in script.episode_references if r.id not in (known_episodes or set())]
+    if unknown:
+        problems.append(
+            f"`episode_references` names unknown episodes ({', '.join(unknown)}); use only IDs from the "
+            "list of earlier episodes, or leave it empty."
+        )
     if len(script.chapters) < 2:
         problems.append("The script needs at least two chapters.")
     speakers = {line.speaker for _, _, line in script.iter_lines()}
@@ -66,6 +74,22 @@ def validate(script: Script, target_words: int, handout: bool = False) -> list[s
     return problems
 
 
+def problems_in_german(problems: list[str]) -> str:
+    """Short German summary of the validation problems (they are written in English for Claude)."""
+    found = []
+    for problem in problems:
+        if m := re.search(r"too (short|long): (\d+) words, the target is about (\d+)", problem):
+            found.append(f"zu {'kurz' if m.group(1) == 'short' else 'lang'} ({m.group(2)} statt etwa {m.group(3)} Wörter)")
+    checks = (("formula", "geschriebene Formeln im gesprochenen Text"), ("handout", "Verweise auf ein Handout, das es "
+              "nicht gibt"), ("too long (", "zu lange Redebeiträge"), ("is empty", "leere Redebeiträge"),
+              ("Both speakers", "nur eine Stimme spricht"), ("two chapters", "weniger als zwei Kapitel"),
+              ("unknown episodes", "Verweise auf Folgen, die es nicht gibt"), ("schema", "Antwort im falschen Format"))
+    for needle, text in checks:
+        if any(needle in p for p in problems) and text not in found:
+            found.append(text)
+    return ", ".join(found) or f"{len(problems)} Problem(e)"
+
+
 async def run(ctx) -> None:
     opts = ctx.request.options
     skills = ctx.skills.stage_skills(NAME, opts.extra_skills)
@@ -74,6 +98,8 @@ async def run(ctx) -> None:
     sources = [Source(**s) for s in json.loads(ctx.path("sources.json").read_text(encoding="utf-8"))]
     target_words = ctx.prompt_context["target_words"]
     papers = papers_for_prompt(ctx.job_dir)  # with notes on cut text, appendix and reading depth
+    # Earlier episodes: only their mini summaries go into the prompt, the long ones are files in library/.
+    earlier = library.snapshot(ctx.job_dir, ctx.settings.episodes_dir)
 
     prompt = render_stage(
         "script",
@@ -84,6 +110,8 @@ async def run(ctx) -> None:
         sources=sources,
         papers=papers,
         clarifications=clarify.answers_text(ctx.job_dir),
+        library=earlier,
+        **library.prompt_context(ctx.settings, ctx.job_dir.name, opts),
         **{**ctx.prompt_context, "language_name": opts.language.english_name},
     )
     session_id = None
@@ -100,12 +128,13 @@ async def run(ctx) -> None:
                 max_turns=ctx.settings.claude_max_turns_script,
                 model=ctx.settings.script_model,
                 resume=session_id,
+                label="Skript" if attempt == 1 else f"Skript (Überarbeitung {attempt - 1})",
             )
         )
         session_id = result.session_id
         try:
             script = Script.model_validate(result.structured)
-            problems = validate(script, target_words, ctx.request.options.handout)
+            problems = validate(script, target_words, opts.handout, {e["id"] for e in earlier})
         except ValidationError as exc:
             script, problems = None, [f"The JSON does not match the schema: {exc}"]
         ctx.log_claude(
@@ -124,7 +153,8 @@ async def run(ctx) -> None:
             + "\n\nPlease fix this and return the complete, revised script."
         )
     raise PodcastError(
-        f"Claude hat nach {MAX_ATTEMPTS} Versuchen kein gültiges Skript geliefert. Mit „Fortsetzen“ erneut "
-        "versuchen; hilft das nicht, die Länge ändern oder die Sprechregeln unter Prompts prüfen.",
+        f"Claude hat nach {MAX_ATTEMPTS} Versuchen kein brauchbares Skript geliefert. Zuletzt noch: "
+        f"{problems_in_german(problems)}. Mit „Fortsetzen“ erneut versuchen; bleibt die Länge das Problem, die "
+        "Episode mit einer anderen Länge neu anlegen, sonst die Sprechregeln unter Prompts prüfen.",
         "Remaining problems:\n- " + "\n- ".join(problems),
     )

@@ -16,7 +16,8 @@ def reset(ctx) -> None:
 
 
 def is_done(ctx) -> bool:
-    return ctx.path("clips/manifest.json").exists()
+    # A finished episode may have lost its clips; it only needs new ones when the audio is redone.
+    return ctx.path("clips/manifest.json").exists() or ctx.path("episode.mp3").exists()
 
 
 async def run(ctx) -> None:

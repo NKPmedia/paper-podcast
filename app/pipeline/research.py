@@ -23,8 +23,9 @@ import re
 import shutil
 from dataclasses import dataclass
 
+from app import library
 from app.claude import ClaudeCall
-from app.errors import PodcastError
+from app.errors import PodcastError, log_text
 from app.models import (
     Candidate,
     RankedCandidate,
@@ -133,12 +134,16 @@ def load_plan(ctx) -> ResearchPlan | None:
 
 async def make_plan(ctx, profile: DepthProfile) -> ResearchPlan:
     await ctx.notify(NAME, "Claude plant die Recherche")
+    episodes_dir = ctx.settings.episodes_dir
     prompt = render_stage("plan", blocks=ctx.blocks, min_scouts=profile.min_scouts, max_scouts=profile.max_scouts,
-                          depth=ctx.request.options.research_depth.value, **_common(ctx))
+                          depth=ctx.request.options.research_depth.value,
+                          library=library.entries(episodes_dir, exclude=ctx.job_dir.name),
+                          **library.prompt_context(ctx.settings, ctx.job_dir.name, ctx.request.options),
+                          **_common(ctx))
     model = ctx.settings.research_main_model
     result = await ctx.claude.run(ClaudeCall(
         prompt=prompt, cwd=ctx.job_dir, tools=[], system_append=ctx.blocks["system"],
-        output_schema=json_schema(ResearchPlan), max_turns=3, model=model,
+        output_schema=json_schema(ResearchPlan), max_turns=3, model=model, label="Rechercheplan",
     ))
     plan = ResearchPlan.model_validate(result.structured)
     problems = _plan_problems(plan, profile)
@@ -149,6 +154,7 @@ async def make_plan(ctx, profile: DepthProfile) -> ResearchPlan:
                    + "\n\nReturn the complete plan again.",
             cwd=ctx.job_dir, tools=[], system_append=ctx.blocks["system"],
             output_schema=json_schema(ResearchPlan), max_turns=3, model=model, resume=result.session_id,
+            label="Rechercheplan (Nachbesserung)",
         ))
         plan = ResearchPlan.model_validate(result.structured)
     if not plan.tasks:
@@ -283,6 +289,8 @@ async def _run_scout(ctx, task_id: str, task, plan: ResearchPlan, profile: Depth
     result = await ctx.claude.run(ClaudeCall(
         prompt=prompt, cwd=ctx.job_dir, tools=SCOUT_TOOLS, skills=skills, system_append=ctx.blocks["system"],
         output_schema=json_schema(ScoutResult), max_turns=profile.scout_turns, model=model,
+        label=f"Scout „{task.title}“",
+        retry=False,  # run_scouts retries a failed scout once another one has finished
     ))
     candidates = ScoutResult.model_validate(result.structured).candidates
     _log_claude(ctx, f"scout:{task.title}", model, result, candidates=len(candidates))
@@ -290,20 +298,66 @@ async def _run_scout(ctx, task_id: str, task, plan: ResearchPlan, profile: Depth
     return candidates
 
 
+SCOUT_RETRIES = 2  # extra attempts per scout after a transient failure
+ALONE_PAUSE_S = 30  # before retrying when no other scout is left to wait for
+
+
+async def _schedule_scouts(ctx, tasks: dict, plan, profile, skills) -> tuple[dict, dict]:
+    """Run the scouts, at most ``claude_max_parallel`` at once.
+
+    A scout that fails for a transient reason (memory, rate limit, crash) is not
+    retried right away: it waits until another scout has ended, so it restarts with
+    one process fewer running. Every such failure also lowers the number of scouts
+    running at once for the rest of the research. Non-transient failures (login,
+    turn limit, …) are final.
+    """
+    limit = max(1, ctx.settings.claude_max_parallel)
+    pending = list(tasks)
+    waiting: list[str] = []  # failed, retried once another scout has ended
+    attempts = {tid: 0 for tid in tasks}
+    running: dict[asyncio.Task, str] = {}
+    results, failures = {}, {}
+    try:
+        while pending or running or waiting:
+            while pending and len(running) < limit:
+                tid = pending.pop(0)
+                attempts[tid] += 1
+                running[asyncio.ensure_future(_run_scout(ctx, tid, tasks[tid], plan, profile, skills))] = tid
+            if not running:  # only failed scouts are left and nobody else is running
+                await asyncio.sleep(ALONE_PAUSE_S)
+                pending, waiting = waiting, []
+                continue
+            done, _ = await asyncio.wait(running, return_when=asyncio.FIRST_COMPLETED)
+            were_running = len(running)
+            pending.extend(waiting)  # a scout has ended: the waiting ones may start again
+            waiting = []
+            for future in done:
+                tid = running.pop(future)
+                title = tasks[tid].title
+                exc = future.exception()
+                if exc is None:
+                    results[tid] = future.result()
+                elif getattr(exc, "transient", False) and attempts[tid] <= SCOUT_RETRIES:
+                    limit = max(1, min(limit, were_running) - 1)
+                    waiting.append(tid)
+                    ctx.log.write("scout_retry", stage=NAME, angle=title, attempt=attempts[tid], parallel=limit,
+                                  error=log_text(exc))
+                else:
+                    failures[title] = exc
+                    ctx.log.write("scout_failed", stage=NAME, angle=title, error=log_text(exc))
+    finally:
+        for future in running:
+            future.cancel()
+    # In task order, not finishing order, so the merged shortlist does not depend on timing.
+    order = [tasks[tid].title for tid in tasks]
+    return ({tid: results[tid] for tid in tasks if tid in results},
+            {title: failures[title] for title in order if title in failures})
+
+
 async def run_scouts(ctx, plan: ResearchPlan, profile: DepthProfile, skills: list[str]) -> list[RankedCandidate]:
     ids = task_ids(plan)
     await ctx.notify(NAME, f"{len(ids)} Scout(s) suchen nach Quellen: " + ", ".join(t.title for t in plan.tasks))
-    outcomes = await asyncio.gather(
-        *(_run_scout(ctx, tid, task, plan, profile, skills) for tid, task in zip(ids, plan.tasks)),
-        return_exceptions=True,
-    )
-    results, failures = {}, {}
-    for tid, task, outcome in zip(ids, plan.tasks, outcomes):
-        if isinstance(outcome, BaseException):
-            failures[task.title] = outcome
-            ctx.log.write("scout_failed", stage=NAME, angle=task.title, error=f"{type(outcome).__name__}: {outcome}")
-        else:
-            results[tid] = outcome
+    results, failures = await _schedule_scouts(ctx, dict(zip(ids, plan.tasks)), plan, profile, skills)
     if not results:
         raise scouts_failed(failures)
     ranked = merge_candidates(results)
@@ -318,13 +372,16 @@ async def run_scouts(ctx, plan: ResearchPlan, profile: DepthProfile, skills: lis
 
 def scouts_failed(failures: dict[str, BaseException]) -> PodcastError:
     """One clear message for 'every scout failed', naming the cause (usually the same for all)."""
-    reasons = {str(exc) for exc in failures.values()}
+    causes = {angle: getattr(exc, "cause", None) or (str(exc) if isinstance(exc, PodcastError)
+                                                     else f"{type(exc).__name__}: {exc}")
+              for angle, exc in failures.items()}
     count = len(failures)
-    if len(reasons) == 1:
-        message = f"Die Recherche ist fehlgeschlagen ({'der Scout' if count == 1 else f'alle {count} Scouts'}). " + reasons.pop()
+    who = "der Scout ist abgebrochen" if count == 1 else f"alle {count} Scouts sind abgebrochen"
+    if len(set(causes.values())) == 1:
+        message = f"Die Recherche ist fehlgeschlagen, {who}, es gibt also keine Quellen. Ursache: " + causes.popitem()[1]
     else:
-        causes = " / ".join(sorted(reason[:160] for reason in reasons)[:3])
-        message = f"Die Recherche ist fehlgeschlagen: Alle {count} Scouts brachen ab, aus verschiedenen Gründen: {causes}"
+        listed = " · ".join(f"„{angle}“: {cause[:160]}" for angle, cause in list(causes.items())[:3])
+        message = f"Die Recherche ist fehlgeschlagen, {who}, aus verschiedenen Gründen: {listed}"
     details = "\n\n".join(
         f"Scout '{angle}': {type(exc).__name__}: {exc}" + (f"\n{exc.details}" if isinstance(exc, PodcastError) and exc.details else "")
         for angle, exc in failures.items()
@@ -345,7 +402,7 @@ async def select_papers(ctx, candidates: list[RankedCandidate], plan: ResearchPl
     model = ctx.settings.research_main_model
     result = await ctx.claude.run(ClaudeCall(
         prompt=prompt, cwd=ctx.job_dir, tools=[], system_append=ctx.blocks["system"],
-        output_schema=json_schema(Selection), max_turns=3, model=model,
+        output_schema=json_schema(Selection), max_turns=3, model=model, label="Auswahl der Paper",
     ))
     selection = Selection.model_validate(result.structured)
     known = {c.id for c in candidates}
@@ -447,6 +504,7 @@ async def read_and_write_notes(ctx, candidates, selection, plan, reading, profil
     result = await ctx.claude.run(ClaudeCall(
         prompt=prompt, cwd=ctx.job_dir, tools=READ_TOOLS, skills=skills, system_append=ctx.blocks["system"],
         output_schema=json_schema(ResearchResult), max_turns=profile.main_turns, model=model,
+        label="Paper lesen und Notizen schreiben",
     ))
     research = ResearchResult.model_validate(result.structured)
     _log_claude(ctx, "read", model, result, sources=len(research.sources))

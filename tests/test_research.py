@@ -306,7 +306,8 @@ async def test_scout_failure_names_the_cause(settings):
 
     auth = claude_error("ProcessError: exit code 1", ["Invalid API key · Please run /login"])
     error = scouts_failed({"background": auth, "core": auth, "critique": auth})
-    assert error.message.startswith("Die Recherche ist fehlgeschlagen (alle 3 Scouts). Claude konnte sich nicht anmelden")
+    assert error.message.startswith("Die Recherche ist fehlgeschlagen, alle 3 Scouts sind abgebrochen, es gibt also "
+                                    "keine Quellen. Ursache: Claude konnte sich nicht anmelden")
     assert "Scout 'core'" in error.details and "Invalid API key" in error.details
 
     mixed = scouts_failed({"core": auth, "critique": TimeoutError("slow")})
@@ -322,7 +323,7 @@ def test_claude_error_classification():
     assert "Netzwerk" in claude_error("Error: getaddrinfo ENOTFOUND api.anthropic.com").message
     assert "Rundenlimit" in claude_error("Claude failed: subtype=error_max_turns").message
     generic = claude_error("Something odd about arXiv 2401.00001")  # no false 401 match
-    assert generic.message == "Claude ist mit einem Fehler abgebrochen." and "2401.00001" in generic.details
+    assert generic.message.startswith("Claude Code meldet „Something odd") and "2401.00001" in generic.details
 
 
 async def test_title_is_set_as_soon_as_research_names_it(settings):
@@ -434,3 +435,65 @@ async def test_plan_with_too_few_key_questions_is_retried_then_filled(settings):
     assert retry.resume and "1 key question(s); it needs 3 to 8" in retry.prompt
     questions = json.loads((job_dir / "plan.json").read_text())["key_questions"]
     assert questions[0] == "Was zeigt das Paper?" and len(questions) == 3
+
+
+async def test_failed_scout_retries_after_another_scout_ended(settings, monkeypatch):
+    import asyncio
+
+    from app.claude import claude_error
+    from app.pipeline import research
+
+    monkeypatch.setattr(research, "ALONE_PAUSE_S", 0)
+    events = []
+    failed_once = []
+
+    class OrderedClaude(FakeClaude):
+        async def run(self, call):
+            if not call.label.startswith("Scout"):
+                return await super().run(call)
+            name = call.label
+            events.append(f"start {name}")
+            assert call.retry is False  # the scheduler retries scouts, not the runner
+            if "Critique" in name and not failed_once:
+                failed_once.append(1)
+                events.append(f"fail {name}")
+                raise claude_error("ProcessError: Command failed with exit code -9")
+            await asyncio.sleep(0.05 if "Core" in name else 0.01)
+            events.append(f"end {name}")
+            return await super().run(call)
+
+    job_dir = job(settings, ResearchDepth.deep)
+    ctx = ctx_for(settings, job_dir, OrderedClaude(default_responses()))
+    await run_pipeline(ctx)
+
+    critique = "Scout „Critique“"
+    fail_at = events.index(f"fail {critique}")
+    retry_at = len(events) - 1 - events[::-1].index(f"start {critique}")
+    assert retry_at > fail_at
+    assert any(e.startswith("end ") and fail_at < i < retry_at for i, e in enumerate(events))  # another one ended
+    assert f"end {critique}" in events
+    log = [json.loads(line) for line in (job_dir / "log.jsonl").read_text().splitlines()]
+    (retry,) = [e for e in log if e["event"] == "scout_retry"]
+    assert retry["angle"] == "Critique" and retry["parallel"] == 2 and "Arbeitsspeicher" in retry["error"]
+    assert not [e for e in log if e["event"] == "scout_failed"]
+    # "Core work" (t1) finished last, yet results are merged in task order.
+    assert json.loads((job_dir / "candidates.json").read_text())[0]["found_by"] == ["t1", "t2", "t3"]
+
+
+async def test_scout_gives_up_after_its_retries(settings, monkeypatch):
+    from app.claude import claude_error
+    from app.pipeline import research
+
+    monkeypatch.setattr(research, "ALONE_PAUSE_S", 0)
+
+    class Crashing(FakeClaude):
+        async def run(self, call):
+            if call.label == "Scout „Critique“":
+                raise claude_error("Claude failed: subtype=error_during_execution")
+            return await super().run(call)
+
+    job_dir = job(settings, ResearchDepth.deep)
+    await run_pipeline(ctx_for(settings, job_dir, Crashing(default_responses())))
+    log = [json.loads(line) for line in (job_dir / "log.jsonl").read_text().splitlines()]
+    assert len([e for e in log if e["event"] == "scout_retry"]) == research.SCOUT_RETRIES
+    assert [e["angle"] for e in log if e["event"] == "scout_failed"] == ["Critique"]

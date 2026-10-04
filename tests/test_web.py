@@ -123,7 +123,8 @@ def test_failed_job_shows_error_and_can_resume(web_settings):
         job = app.state.service.store.claim_next()
         asyncio.run(app.state.worker.run_job(job))
         stored = app.state.service.store.get(job.id)
-        assert stored.status == "failed" and stored.error.startswith("Die Recherche ist fehlgeschlagen (alle 2 Scouts). kaputt")
+        assert stored.status == "failed" and stored.error.startswith("Die Recherche ist fehlgeschlagen, alle 2 Scouts sind abgebrochen, es gibt also keine "
+                                                          "Quellen. Ursache: RuntimeError: kaputt")
         assert "Traceback (most recent call last)" in stored.error and "Scout 'Core work'" in stored.error
         page = client.get(f"/episodes/{job.id}")
         assert "Die Recherche ist fehlgeschlagen" in page.text and "Fortsetzen" in page.text

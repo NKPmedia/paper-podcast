@@ -119,6 +119,9 @@ def _describe(entry: dict) -> tuple[str, str, str]:
         detail = "\n".join(f"{p.get('title', '')[:70]} · {fmt_tokens(p.get('tokens'))} Tokens · {p.get('reason', '')}"
                            for p in papers)
         return "info", text, detail
+    if event == "scout_retry":
+        return ("warn", f"Scout {entry.get('angle', '')} abgebrochen – neuer Versuch, sobald ein anderer Scout fertig "
+                f"ist (ab jetzt höchstens {entry.get('parallel', 1)} gleichzeitig)", entry.get("error", ""))
     if event == "scout_failed":
         return "error", f"Scout {entry.get('angle', '')} fehlgeschlagen", entry.get("error", "")
     if event == "downloads":

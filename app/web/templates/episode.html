@@ -7,7 +7,7 @@
   {% if job.title %}<p class="muted">Thema: {{ job.topic }}</p>{% endif %}
   <p class="meta">
     <span class="badge {{ job.status }}" data-field="status">{{ status_labels[job.status] }}</span>
-    {{ lengths.get(options.get("length"), "") }} · Recherche {{ depths.get(options.get("research_depth"), "") }}{% if options.get("handout") %} · mit Handout{% endif %} · {{ languages.get(options.get("language", "de"), "") }}
+    {{ lengths.get(options.get("length"), "") }} · Recherche {{ depths.get(options.get("research_depth"), "") }}{% if options.get("handout") %} · mit Handout{% endif %}{% if options.get("audience") == "newcomer" %} · für Neueinsteiger{% endif %} · Stimme: {% if tts_used %}{{ tts_labels.get(tts_used, tts_used) }}{% if tts_used != tts_planned %} (Ersatz für {{ tts_labels[tts_planned] }}){% endif %}{% else %}{{ tts_labels[tts_planned] }}{% endif %} · {{ languages.get(options.get("language", "de"), "") }}
     · {{ job.created_at | time }}
   </p>
 
@@ -82,6 +82,77 @@
     {% endfor %}
   </ol>
 </section>
+{% endif %}
+
+{% if episode and not job.active %}
+{% if memory and memory.follow_ups %}
+<section class="card">
+  <h2>Wie geht's weiter?</h2>
+  <p class="hint">Vorschläge für Folgeepisoden. Sie knüpfen an diese Folge an und übernehmen Länge, Recherche-Tiefe, Sprache, Vorwissen und Handout{% if series %}; „Folge erstellen“ setzt die Reihe „{{ series[0].title }}“ fort{% endif %}.</p>
+  <ol class="follow-ups">
+    {% for f in memory.follow_ups %}
+    <li><strong>{{ f.title }}</strong><br><span class="muted">{{ f.why }}</span>
+      <div class="actions">
+        <form method="post" action="/episodes/{{ job.id }}/follow-ups/{{ loop.index0 }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="primary">Folge erstellen</button></form>
+        <a href="/?topic={{ f.topic | urlencode }}&amp;follows={{ job.id | urlencode }}{% if series %}&amp;series={{ series[0].id }}{% endif %}">Anpassen …</a>
+      </div></li>
+    {% endfor %}
+  </ol>
+</section>
+{% elif not memory %}
+<section class="card">
+  <h2>Wie geht's weiter?</h2>
+  <p class="hint">Für diese Folge gibt es noch keine Zusammenfassung fürs Podcast-Gedächtnis und keine Vorschläge für Folgeepisoden.</p>
+  <form method="post" action="/episodes/{{ job.id }}/retry"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="from_stage" value="memory"><button>Jetzt erzeugen</button></form>
+</section>
+{% endif %}
+{% if links.outgoing or links.incoming or (memory and memory.key_concepts) %}
+<section class="card">
+  <h2>Verknüpfte Folgen</h2>
+  {% if links.outgoing %}
+  <p><strong>Baut auf auf</strong></p>
+  <ul>{% for l in links.outgoing %}<li><a href="/episodes/{{ l.id }}">{{ l.title }}</a>{% if l.kind == "follows" %} <span class="badge">Fortsetzung</span>{% endif %}{% if l.how %}<br><span class="muted">{{ l.how }}</span>{% endif %}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if links.incoming %}
+  <p><strong>Später aufgegriffen in</strong></p>
+  <ul>{% for l in links.incoming %}<li><a href="/episodes/{{ l.id }}">{{ l.title }}</a>{% if l.kind == "follows" %} <span class="badge">Fortsetzung</span>{% endif %}{% if l.how %}<br><span class="muted">{{ l.how }}</span>{% endif %}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if memory and memory.key_concepts %}<p class="hint">Schlüsselbegriffe: {{ memory.key_concepts | join(" · ") }}</p>{% endif %}
+</section>
+{% endif %}
+{% endif %}
+
+{% if series %}
+<section class="card">
+  <h2>Reihe: {{ series[0].title }} · Teil {{ series[1] }} von {{ series_parts | length }}</h2>
+  {% if series[0].arc %}<p class="muted">{{ series[0].arc }}</p>{% endif %}
+  <ol class="series-parts">
+    {% for part_id, part_job in series_parts %}
+    <li>{% if part_id == job.id %}<strong>{{ job.display_title }}</strong>{% else %}<a href="/episodes/{{ part_id }}">{{ part_job.display_title if part_job else part_id }}</a>{% if part_job and part_job.active %} <span class="badge {{ part_job.status }}">{{ status_labels[part_job.status] }}</span>{% endif %}{% endif %}</li>
+    {% endfor %}
+  </ol>
+  <div class="actions">
+    {% for action, label in (("up", "↑ Früher einordnen"), ("down", "↓ Später einordnen"), ("remove", "Aus der Reihe nehmen")) %}
+    <form method="post" action="/episodes/{{ job.id }}/series"><input type="hidden" name="csrf" value="{{ csrf }}"><button name="action" value="{{ action }}">{{ label }}</button></form>
+    {% endfor %}
+    <a href="/?series={{ series[0].id }}">Nächsten Teil erstellen …</a>
+  </div>
+</section>
+{% elif episode and not job.active %}
+<details class="card">
+  <summary><h2>Zu einer Reihe hinzufügen</h2></summary>
+  <p class="hint">In einer Reihe beginnt jeder Teil mit einem kurzen „Was bisher geschah“, folgt einem roten Faden und endet mit einem Ausblick auf den nächsten Teil.</p>
+  <form method="post" action="/episodes/{{ job.id }}/series">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Reihe
+      <select name="series">{% for s in all_series %}<option value="{{ s.id }}">{{ s.title }} (als Teil {{ s.episodes | length + 1 }})</option>{% endfor %}<option value="new" {% if not all_series %}selected{% endif %}>Neue Reihe, beginnend mit dieser Folge</option></select>
+    </label>
+    <label>Titel der neuen Reihe <input name="title" maxlength="120" value="{{ job.display_title }}"></label>
+    <label>Roter Faden <span class="hint">optional – worauf die Reihe hinausläuft, z.B. „Von den Grundlagen bis zum Stand der Forschung bei …“</span>
+      <textarea name="arc" rows="2" maxlength="3000"></textarea></label>
+    <button>Hinzufügen</button>
+  </form>
+</details>
 {% endif %}
 
 {% if tokens.calls or claude_calls %}
@@ -216,7 +287,7 @@
   <form method="post" action="/episodes/{{ job.id }}/retry" class="inline-select" data-confirm="Die gewählten Schritte und alle danach werden neu erzeugt, die bisherige Fassung wird ersetzt. Fortfahren?">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label class="sr-only" for="from_stage">Neu erzeugen ab</label>
-    <select name="from_stage" id="from_stage">{% for s in stage_names %}<option value="{{ s }}" {% if s == "script" %}selected{% endif %}>ab {{ stage_labels[s] }}{% if s == "research" %} (komplett neu, dauert am längsten){% endif %}</option>{% endfor %}</select>
+    <select name="from_stage" id="from_stage">{% for s in stage_names %}<option value="{{ s }}" {% if s == "script" %}selected{% endif %}>ab {{ stage_labels[s] }}{% if s == "research" %} (komplett neu, dauert am längsten){% elif s == "memory" %} (nur Zusammenfassung und Vorschläge){% endif %}</option>{% endfor %}</select>
     <button>Neu erzeugen</button>
   </form>
   <form method="post" action="/episodes/{{ job.id }}/delete" data-confirm="Episode samt allen Dateien endgültig löschen?"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Episode löschen</button></form>

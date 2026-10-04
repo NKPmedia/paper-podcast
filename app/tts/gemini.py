@@ -18,6 +18,7 @@ from pathlib import Path
 import httpx
 
 from app.config import Settings
+from app.errors import PodcastError
 from app.models import Script
 from app.tts import Clip
 from app.tts.edge import clean_text
@@ -29,7 +30,20 @@ MAX_CHUNK_CHARS = 3500
 RETRIES = 3
 
 
-class QuotaExceeded(RuntimeError):
+def gemini_reason(status: int | None, error: str) -> str:
+    text = error.lower()
+    if status is None:
+        return "Der Server erreicht die Gemini-API nicht (Netzwerkproblem). Prüfe die Internetverbindung des Servers."
+    if status in (400, 401, 403) and ("api key" in text or "api_key" in text or "permission" in text or status != 400):
+        return "Der Gemini-Key ist ungültig oder hat keinen Zugriff. Prüfe ihn unter Einstellungen → Stimmen."
+    if status == 404 or "model" in text and status == 400:
+        return "Das eingestellte Gemini-TTS-Modell gibt es nicht. Prüfe den Modellnamen unter Einstellungen → Stimmen."
+    if status >= 500:
+        return "Die Gemini-Server sind gerade gestört. Später mit „Fortsetzen“ erneut versuchen."
+    return f"Gemini meldet HTTP {status}. Mit „Fortsetzen“ erneut versuchen; Einzelheiten unter „Technische Details“."
+
+
+class QuotaExceeded(PodcastError):
     pass
 
 
@@ -94,21 +108,30 @@ class GeminiTTS:
             try:
                 response = await client.post(url, json=body, headers={"x-goog-api-key": self.settings.gemini_api_key})
             except httpx.HTTPError as exc:
-                error = f"network error: {exc}"
+                error = f"network error: {type(exc).__name__}: {exc}"
+                status = None
             else:
                 if response.status_code == 429 or "RESOURCE_EXHAUSTED" in response.text[:2000]:
-                    raise QuotaExceeded(f"Gemini-Kontingent erschöpft ({response.status_code})")
+                    raise QuotaExceeded(
+                        "Das Gemini-Kontingent ist erschöpft (das kostenlose Kontingent reicht für wenige Episoden "
+                        "pro Tag). Morgen mit „Fortsetzen“ weitermachen oder unter Einstellungen → Stimmen auf Edge "
+                        "umstellen.", f"HTTP {response.status_code}: {response.text[:300]}")
                 if response.status_code == 200:
                     part = response.json()["candidates"][0]["content"]["parts"][0]["inlineData"]
                     rate = int(re.search(r"rate=(\d+)", part.get("mimeType", "")).group(1)) \
                         if "rate=" in part.get("mimeType", "") else 24000
                     return base64.b64decode(part["data"]), rate
                 error = f"HTTP {response.status_code}: {response.text[:300]}"
+                status = response.status_code
+                if status in (400, 401, 403, 404):
+                    break  # a wrong key or model does not get better by retrying
             if attempt == RETRIES:
-                raise RuntimeError(f"Gemini TTS failed: {error}")
+                break
             log.warning("Gemini TTS attempt %d failed (%s), retrying", attempt, error)
             await asyncio.sleep(2**attempt)
-        raise AssertionError("unreachable")
+        raise PodcastError(f"Die Sprachausgabe mit Gemini ist fehlgeschlagen: {gemini_reason(status, error)}",
+                           f"Gemini TTS failed ({self.settings.gemini_tts_model}): {error}")
+
 
     async def synthesize(self, script: Script, out_dir: Path) -> list[Clip]:
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -136,7 +159,15 @@ class GeminiTTS:
 
 
 class FallbackTTS:
-    """Try the primary provider; on quota exhaustion (or any error) use the fallback for the whole episode."""
+    """Speak with the primary engine; if it fails, the other engine speaks the whole episode.
+
+    Voices of two engines are never mixed: switching deletes the clips of the failed
+    engine. ``engine.txt`` in the clip folder remembers a switch, so "Fortsetzen"
+    goes on with the engine that took over (keeping its finished clips) and tries
+    the original one only if that fails too.
+    """
+
+    MARKER = "engine.txt"
 
     def __init__(self, primary, fallback):
         self.primary = primary
@@ -145,14 +176,34 @@ class FallbackTTS:
         self.note = ""
 
     async def synthesize(self, script: Script, out_dir: Path) -> list[Clip]:
-        try:
-            clips = await self.primary.synthesize(script, out_dir)
-            self.name = self.primary.name
+        out_dir.mkdir(parents=True, exist_ok=True)
+        marker = out_dir / self.MARKER
+        engines = [self.primary, self.fallback]
+        if marker.exists() and marker.read_text(encoding="utf-8").strip() == self.fallback.name:
+            engines.reverse()  # resumed after a switch: keep going with the engine that took over
+            self.note = f"Fortgesetzt mit {self.fallback.name} (Ersatz für {self.primary.name})"
+        errors: list[tuple[str, Exception]] = []
+        for engine in engines:
+            if errors:  # switching engines: drop the other engine's clips
+                for clip in out_dir.glob("*"):
+                    if clip.name != self.MARKER:
+                        clip.unlink()
+                marker.write_text(engine.name, encoding="utf-8")
+            try:
+                clips = await engine.synthesize(script, out_dir)
+            except Exception as exc:
+                log.warning("%s failed (%s)", engine.name, exc)
+                errors.append((engine.name, exc))
+                continue
+            self.name = engine.name
+            if errors:
+                failed, exc = errors[-1]
+                self.note = f"{failed} → {engine.name}: {getattr(exc, 'message', exc)}"
             return clips
-        except Exception as exc:
-            log.warning("%s failed (%s); falling back to %s", self.primary.name, exc, self.fallback.name)
-            self.note = f"{self.primary.name} → {self.fallback.name}: {exc}"
-            for clip in out_dir.glob("*"):  # never mix voices of two engines in one episode
-                clip.unlink()
-            self.name = self.fallback.name
-            return await self.fallback.synthesize(script, out_dir)
+        (first, first_exc), (second, second_exc) = errors
+        raise PodcastError(
+            f"Beide Sprachausgaben sind gescheitert. {first}: {getattr(first_exc, 'message', first_exc)} – "
+            f"Ersatz {second}: {getattr(second_exc, 'message', second_exc)}",
+            "\n\n".join(f"{name}: {type(exc).__name__}: {exc}\n{getattr(exc, 'details', '')}"
+                         for name, exc in errors),
+        ) from second_exc

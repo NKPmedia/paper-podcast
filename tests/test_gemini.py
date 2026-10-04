@@ -8,6 +8,7 @@ import pytest
 from app.models import Script
 from app.tts import make_tts
 from app.tts.edge import EdgeTTS
+from app.errors import PodcastError
 from app.tts.gemini import FallbackTTS, GeminiTTS, QuotaExceeded, chunk_lines, speaker_label
 from tests.conftest import FakeTTS, make_script
 
@@ -25,7 +26,8 @@ def test_provider_selection(settings):
     with_key = settings.model_copy(update={"gemini_api_key": "k"})
     tts = make_tts(with_key)
     assert isinstance(tts, FallbackTTS) and isinstance(tts.primary, GeminiTTS)
-    assert isinstance(make_tts(with_key.model_copy(update={"tts_provider": "edge"})), EdgeTTS)
+    edge_first = make_tts(with_key.model_copy(update={"tts_provider": "edge"}))  # Gemini steps in for Edge
+    assert isinstance(edge_first.primary, EdgeTTS) and isinstance(edge_first.fallback, GeminiTTS)
 
 
 def pcm_response(seconds=0.2, rate=24000):
@@ -89,5 +91,6 @@ async def test_gemini_retries_then_fails(settings, tmp_path, monkeypatch):
     settings = settings.model_copy(update={"gemini_api_key": "key"})
     tts = GeminiTTS(settings, client=httpx.AsyncClient(transport=httpx.MockTransport(
         lambda r: httpx.Response(500, text="boom"))))
-    with pytest.raises(RuntimeError, match="HTTP 500"):
+    with pytest.raises(PodcastError, match="Gemini-Server sind gerade gestört") as error:
         await tts.synthesize(Script.model_validate(make_script()), tmp_path)
+    assert "HTTP 500: boom" in error.value.details

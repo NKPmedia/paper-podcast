@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import re
 from pathlib import Path
 
@@ -32,7 +33,27 @@ STYLE_PROSODY = {
     "calm": ("-5%", "+0Hz"),
 }
 
-RETRIES = 4
+# Edge throttles long sessions with many requests for a while; wait it out (~4 min in total)
+# instead of failing the whole episode on a short burst of errors.
+RETRY_DELAYS = (5, 15, 45, 90, 120)
+
+
+def failure_reason(exc: BaseException) -> str:
+    """What went wrong with Edge, in words for the listener."""
+    name = type(exc).__name__
+    text = f"{name} {exc}".lower()
+    if "403" in text or "handshake" in text or name == "SkewAdjustmentError":
+        return ("Microsoft hat die Anfragen abgelehnt (HTTP 403). Meist drosselt Edge nach sehr vielen Sätzen "
+                "kurzzeitig; selten ist die edge-tts-Version veraltet (dann hilft ein Update des Images)")
+    if "429" in text or "too many" in text:
+        return "Edge hat zu viele Anfragen kurz hintereinander abgelehnt (Drosselung)"
+    if name == "NoAudioReceived" or "empty audio" in text:
+        return ("Edge hat für einen Satz keinen Ton geliefert. Das passiert bei Drosselung oder bei Text, den die "
+                "Stimme nicht sprechen kann (z.B. nur Sonderzeichen)")
+    if name in ("ClientConnectorError", "ClientConnectionError", "ServerDisconnectedError", "TimeoutError",
+                "ClientOSError", "gaierror") or "timeout" in text or "connect" in text:
+        return "Der Server erreicht den Edge-Sprachdienst nicht (Verbindung abgebrochen, Zeitüberschreitung oder DNS)"
+    return f"Edge TTS meldet einen unerwarteten Fehler ({name}: {str(exc)[:160]})"
 
 
 def clean_text(text: str) -> str:
@@ -64,7 +85,8 @@ class EdgeTTS:
 
         rate, pitch = prosody(style)
         tmp = path.with_suffix(".part")
-        for attempt in range(1, RETRIES + 1):
+        retries = len(RETRY_DELAYS) + 1
+        for attempt in range(1, retries + 1):
             try:
                 communicate = edge_tts.Communicate(
                     text, voice, rate=rate, pitch=pitch, proxy=self.settings.edge_proxy
@@ -75,15 +97,14 @@ class EdgeTTS:
                 tmp.rename(path)
                 return
             except Exception as exc:  # network hiccups, throttling
-                if attempt == RETRIES:
+                if attempt == retries:
                     raise PodcastError(
-                        "Die Sprachausgabe (Edge TTS) ist nicht erreichbar. Prüfe die Internetverbindung des Servers "
-                        "oder trag unter Einstellungen → Stimmen einen Gemini-Key ein. Mit „Fortsetzen“ geht es "
-                        "beim letzten Satz weiter.",
-                        f"Edge TTS failed for {path.name} after {RETRIES} attempts: {type(exc).__name__}: {exc}",
+                        failure_reason(exc),
+                        f"Edge TTS failed for {path.name} after {retries} attempts over ~{sum(RETRY_DELAYS) // 60} "
+                        f"min: {type(exc).__name__}: {exc}\nText: {text[:300]}",
                     ) from exc
-                delay = 2**attempt
-                log.warning("Edge TTS %s failed (%s), retry in %ss", path.name, exc, delay)
+                delay = RETRY_DELAYS[attempt - 1] * random.uniform(0.8, 1.2)
+                log.warning("Edge TTS %s failed (%s), retry in %.0fs", path.name, exc, delay)
                 await asyncio.sleep(delay)
 
     async def synthesize(self, script: Script, out_dir: Path) -> list[Clip]:
@@ -104,5 +125,22 @@ class EdgeTTS:
                 jobs.append(one(text, self.voices[line.speaker], line.style, path))
             elif not text:
                 clips.pop()
-        await asyncio.gather(*jobs)
+        tasks = [asyncio.ensure_future(job) for job in jobs]
+        try:
+            await asyncio.gather(*tasks)
+        except BaseException as exc:
+            for task in tasks:  # stop the other requests; finished clips are kept for "Fortsetzen"
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            if not isinstance(exc, PodcastError):
+                raise
+            done = sum(1 for c in clips if c.path.exists())
+            raise PodcastError(
+                f"Die Sprachausgabe (Edge TTS) ist abgebrochen: {exc.message}. {done} von {len(clips)} Sätzen sind "
+                f"fertig und bleiben gespeichert; ein Satz scheiterte auch nach {len(RETRY_DELAYS) + 1} Versuchen über "
+                f"etwa {sum(RETRY_DELAYS) // 60} Minuten. In 10–15 Minuten mit „Fortsetzen“ weitermachen – es geht "
+                "beim ersten fehlenden Satz weiter. Alternativ unter Einstellungen → Stimmen einen Gemini-Key "
+                "eintragen.",
+                exc.details,
+            ) from exc
         return clips

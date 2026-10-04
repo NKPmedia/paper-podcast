@@ -14,6 +14,7 @@
     {% if request.session.get("user") %}
     <nav>
       <a href="/" {% if request.url.path == "/" or request.url.path.startswith("/episodes") %}class="active"{% endif %}>Episoden</a>
+      <a href="/series" {% if request.url.path.startswith("/series") %}class="active"{% endif %}>Reihen</a>
       <a href="/prompts" {% if request.url.path.startswith("/prompts") %}class="active"{% endif %}>Prompts</a>
       <a href="/skills" {% if request.url.path.startswith("/skills") %}class="active"{% endif %}>Skills</a>
       <a href="/connections" {% if request.url.path.startswith("/connections") %}class="active"{% endif %}>Verbindungen</a>

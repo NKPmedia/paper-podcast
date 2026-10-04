@@ -21,7 +21,7 @@ Status: **all milestones implemented** (email and REST API dropped on request) �
 | Research | Always runs first; depth `quick` / `medium` (default) / `deep` per request. Parallel Haiku scouts return a ranked shortlist, Opus picks papers, our code downloads the full texts, and Opus reads all of them |
 | Length | Per request: `kurz` (~5 min), `mittel` (~12 min), `lang` (~25 min) |
 | Review | Fully automatic — no manual script approval step |
-| TTS | Free + online: **Edge TTS** by default; **Gemini TTS** (free tier) if a key is set, falling back to Edge when the quota runs out |
+| TTS | Chosen per episode (web form, Telegram): **Edge TTS** or **Gemini TTS** (free tier, needs a key); the other engine speaks the whole episode when the chosen one fails (never mixed). The settings only set the preselection |
 | Handout | Optional PDF (Markdown + matplotlib plots → PDF) |
 | Prompt editing | Named prompt blocks, editable in the web UI, reset-to-default, per-request override |
 | Skills | Claude Code Agent Skills (`SKILL.md` folders) that Claude loads on demand; bundled defaults plus your own, managed in the web UI |
@@ -91,6 +91,8 @@ Every job has its own directory `data/episodes/<id>/`:
 ```
 .claude/skills/   snapshot of the skills enabled for this job
 request.json      topic + options + resolved prompt blocks
+library/        long summaries of earlier episodes (snapshot for the script)
+memory.json       mini + reference summary, key concepts, follow-up suggestions
 research.md       research notes (Claude)
 sources.json      [{title, authors, year, url, why_relevant}]
 script.json       validated dialogue script
@@ -234,6 +236,49 @@ testable and resumable.
 - Two-pass `loudnorm` to −16 LUFS; mono MP3, 64–96 kbps. A 25-minute episode is about
   15 MB, well under Telegram's 50 MB bot upload limit.
 - ID3 tags (title, date, description with sources), chapter markers, cover image.
+
+### Stage 6 — Memory and follow-ups (podcast memory)
+- After the audio, Claude reads the finished script and writes `memory.json`:
+  - `mini_summary`: one sentence; **only this** goes into later prompts, for every
+    earlier episode (newest 60).
+  - `reference_summary`: 200–400 words for a later script writer — claims and numbers,
+    which concepts were explained and with which analogies, terms, open questions.
+  - `key_concepts` and up to 5 `follow_ups` (title, topic, why).
+- The plan and script prompts list the earlier episodes (mini summaries). The script
+  stage copies the long summaries to `library/<id>.md`; Claude reads only the ones it
+  refers to and lists them in the script's `episode_references` (validated IDs).
+- A follow-up episode (`options.follows`) gets its parent's long summary in full and
+  opens with a short callback instead of repeating the basics.
+- The web UI shows the suggestions ("Folge erstellen" with the same options, or
+  "Anpassen" to prefill the form) and the links in both directions.
+- Non-fatal: if this step fails, the episode is still done; "ab Verknüpfung neu
+  erzeugen" (also for older episodes) runs only this step.
+
+### Prior knowledge and series
+- `options.audience`: `regular` (default; the listener knows the earlier episodes, so
+  concepts explained there are refreshed in a sentence or two with a callback to the
+  old analogy, and the time goes into depth) or `newcomer` (everything explained,
+  earlier episodes only as pointers). The library lines carry each episode's key
+  concepts so the script can tell what was explained already.
+- Series (`<data>/series.json`, page "Reihen"): title, common thread (arc) and the
+  ordered parts. Part n gets the arc, the earlier parts' mini summaries and the
+  previous part's reference summary, opens with a short "previously on", and ends
+  with a teaser. The first follow-up suggestion of a part is the next part, and
+  "Folge erstellen" on a part continues the series.
+
+### Robustness
+- Claude failures are classified; transient ones (rate limit, overload, network,
+  killed process, unknown crash) are retried after 30 s and 90 s. At most
+  `claude_max_parallel` (default 3) Claude processes run at once.
+- Scouts are retried differently: a scout that fails for a transient reason waits
+  until another scout has ended (so it restarts with one process fewer running,
+  which is what helps when memory ran out), at most twice. Each such failure also
+  lowers the number of scouts running at once for the rest of that research. If no
+  other scout is left, it retries alone after 30 s.
+- Edge TTS waits out throttling (5–120 s between up to 6 attempts) and cancels the
+  remaining requests when a line finally fails; finished clips are kept.
+- Stage and scout failures log the full technical details, since the job's error
+  field is cleared on resume.
 
 ## 5. Customizable prompts
 

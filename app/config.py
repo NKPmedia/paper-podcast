@@ -56,6 +56,8 @@ class Settings(BaseModel):
     research_main_model: str = "opus"
     script_model: str = "opus"
     claude_max_turns_script: int = 40
+    # Claude Code processes at once (scouts): each needs ~300–500 MB RAM and they share the rate limit
+    claude_max_parallel: int = 3
 
     # Paper downloads (full texts for the main research agent)
     download_max_mb: int = 20
@@ -109,6 +111,10 @@ class Settings(BaseModel):
     @property
     def assets_dir(self) -> Path:
         return self.data_dir / "assets"
+
+    @property
+    def series_path(self) -> Path:
+        return self.data_dir / "series.json"
 
     @property
     def db_path(self) -> Path:

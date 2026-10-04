@@ -21,6 +21,7 @@ from typing import Protocol
 from app.config import Settings
 from app.db import Job
 from app.errors import split_error
+from app.tts import TTS_LABELS, resolve_tts
 from app.jobs import JobError, JobService, Worker
 from app.models import EpisodeOptions, EpisodeRequest, Language, Length, ResearchDepth
 from app.feed import TEXT as FEED_TEXT, episode_language
@@ -35,7 +36,7 @@ Keyboard = list[list[Button]]
 
 MAX_AUDIO_BYTES = 49 * 1024 * 1024  # Bot API upload limit is 50 MB
 STAGE_LABELS = {"research": "Recherche", "script": "Skript", "handout": "Handout", "tts": "Sprachausgabe",
-                "audio": "Audio"}
+                "audio": "Audio", "memory": "Verknüpfung"}
 LENGTH_LABELS = {"kurz": "Kurz (~5 min)", "mittel": "Mittel (~12 min)", "lang": "Lang (~25 min)"}
 LENGTH_BUTTONS = {"kurz": "Kurz · 5 min", "mittel": "Mittel · 12 min", "lang": "Lang · 25 min"}
 DEPTH_LABELS = {"quick": "Schnell", "medium": "Normal", "deep": "Gründlich"}
@@ -93,6 +94,7 @@ class Draft:
     handout: bool = False
     language: str = Language.de.value
     clarify: bool = True
+    tts: str = "edge"
 
 
 @dataclass
@@ -239,7 +241,10 @@ class TelegramBot:
             f"Recherche: {DEPTH_LABELS[draft.depth]} ({DEPTH_HINTS[draft.depth]})\n"
             f"Handout: {'ja (PDF)' if draft.handout else 'nein'}\n"
             f"Sprache: {LANGUAGE_LABELS[draft.language]}\n"
-            f"Rückfragen: {'erlaubt, falls das Thema unklar ist' if draft.clarify else 'nein'}"
+            f"Rückfragen: {'erlaubt, falls das Thema unklar ist' if draft.clarify else 'nein'}\n"
+            f"Stimme: {TTS_LABELS[draft.tts]}"
+            + (f" ({TTS_LABELS['gemini' if draft.tts == 'edge' else 'edge']} springt bei Problemen ein)"
+               if self.settings.gemini_api_key else "")
         )
         keyboard = [
             [(mark(LENGTH_BUTTONS[v], draft.length == v), f"d:len:{v}") for v in LENGTH_LABELS],
@@ -247,8 +252,10 @@ class TelegramBot:
             [(mark("📄 Handout (PDF)", draft.handout), "d:ho"), (mark("❓ Rückfragen", draft.clarify), "d:cl")],
             []
             + [(mark(LANGUAGE_LABELS[v], draft.language == v), f"d:lang:{v}") for v in LANGUAGE_LABELS],
-            [("▶ Starten", "d:go"), ("✖ Verwerfen", "d:x")],
         ]
+        if self.settings.gemini_api_key:  # without a key there is only Edge
+            keyboard.append([(mark("🔊 " + label, draft.tts == v), f"d:tts:{v}") for v, label in TTS_LABELS.items()])
+        keyboard.append([("▶ Starten", "d:go"), ("✖ Verwerfen", "d:x")])
         return text, keyboard
 
     async def new_draft(self, chat_id: int, topic: str) -> None:
@@ -260,7 +267,7 @@ class TelegramBot:
             await self.messenger.send_text(chat_id, "Das Thema ist zu lang (max. 2000 Zeichen).")
             return
         language = self.settings.default_language if self.settings.default_language in LANGUAGE_LABELS else "de"
-        draft = Draft(topic=topic, language=language)
+        draft = Draft(topic=topic, language=language, tts=resolve_tts(self.settings))
         text, keyboard = self._draft_view(draft)
         message_id = await self.messenger.send_text(chat_id, text, keyboard)
         self.drafts[(chat_id, message_id)] = draft
@@ -281,6 +288,8 @@ class TelegramBot:
             draft.clarify = not draft.clarify
         elif field == "lang" and value in LANGUAGE_LABELS:
             draft.language = value
+        elif field == "tts" and value in TTS_LABELS and self.settings.gemini_api_key:
+            draft.tts = value
         elif field == "x":
             del self.drafts[(chat_id, message_id)]
             await self.messenger.edit_text(chat_id, message_id, f"Verworfen: {esc(draft.topic)}")
@@ -292,7 +301,7 @@ class TelegramBot:
                 topic=draft.topic,
                 options=EpisodeOptions(length=Length(draft.length), research_depth=ResearchDepth(draft.depth),
                                        handout=draft.handout, language=Language(draft.language),
-                                       clarify=draft.clarify),
+                                       clarify=draft.clarify, tts=draft.tts),
             )
             job = self.service.submit(request, origin="telegram")
             # Record the status message before the first await, so the worker's

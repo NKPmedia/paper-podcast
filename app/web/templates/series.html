@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Reihen · {{ settings.podcast_name }}{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Reihen</h1>
+  <p>Eine Reihe bündelt Folgen in einer festen Reihenfolge. Jeder Teil kennt den roten Faden und die bisherigen Teile, beginnt mit einem kurzen „Was bisher geschah“ und endet mit einem Ausblick. Neue Teile entstehen über das Feld <b>Reihe</b> beim Erstellen einer Episode oder über „Folge erstellen“ bei einem Vorschlag.</p>
+  <form method="post" action="/series">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Titel <input name="title" required maxlength="120" placeholder="z.B. „Continual RL – vom Vergessen zum Weiterlernen“"></label>
+    <label>Roter Faden <span class="hint">optional</span>
+      <textarea name="arc" rows="2" maxlength="3000" placeholder="Worauf die Reihe hinausläuft und in welcher Reihenfolge die Themen aufeinander aufbauen"></textarea></label>
+    <button class="primary">Reihe anlegen</button>
+  </form>
+</section>
+
+{% for s in all_series %}
+<section class="card">
+  <h2>{{ s.title }}</h2>
+  {% if s.arc %}<p class="muted">{{ s.arc }}</p>{% endif %}
+  {% if s.episodes %}
+  <ol class="series-parts">
+    {% for part_id in s.episodes %}{% set j = jobs.get(part_id) %}
+    <li><a href="/episodes/{{ part_id }}">{{ j.display_title if j else part_id }}</a>{% if j and j.status != "done" %} <span class="badge {{ j.status }}">{{ status_labels[j.status] }}</span>{% endif %}</li>
+    {% endfor %}
+  </ol>
+  {% else %}<p class="hint">Noch keine Folgen.</p>{% endif %}
+  <div class="actions"><a href="/?series={{ s.id }}">Teil {{ s.episodes | length + 1 }} erstellen …</a></div>
+  <details>
+    <summary>Bearbeiten</summary>
+    <form method="post" action="/series/{{ s.id }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label>Titel <input name="title" required maxlength="120" value="{{ s.title }}"></label>
+      <label>Roter Faden <textarea name="arc" rows="2" maxlength="3000">{{ s.arc }}</textarea></label>
+      <div class="actions">
+        <button class="primary">Speichern</button>
+        <button name="action" value="delete" class="danger" data-confirm="Reihe auflösen? Die Folgen bleiben erhalten.">Reihe auflösen</button>
+      </div>
+    </form>
+  </details>
+</section>
+{% endfor %}
+{% endblock %}

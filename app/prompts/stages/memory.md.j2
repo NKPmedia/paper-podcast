@@ -1,0 +1,41 @@
+The episode below of a science podcast is finished. Write down what later episodes need to know about it, and suggest follow-up episodes.
+
+The podcast keeps a memory of all its episodes. When a new episode is written, the script writer sees the **mini summary** of every earlier episode and opens the **reference summary** of the few it wants to refer to ("as we discussed in the episode on …"). Listeners can also start one of your follow-up suggestions with a single click.
+
+# The request
+
+{{ topic }}
+
+# The episode: {{ title }}
+
+{{ summary }}
+
+{{ dialogue }}
+
+# Sources
+
+{% for s in sources %}- {{ s.title }}{% if s.authors %} — {{ s.authors }}{% endif %}{% if s.year %} ({{ s.year }}){% endif %}
+{% endfor %}{% if library %}
+# Earlier episodes
+
+{% for e in library %}- {{ e.date }} · {{ e.title }}: {{ e.mini }}
+{% endfor %}{% endif %}{% if series %}
+# Series
+
+This episode is part {{ series.part }} of the series "{{ series.title }}".{% if series.arc %} Common thread: {{ series.arc }}{% endif %}
+{% endif %}
+# What to return
+
+- `mini_summary` (English, one sentence, at most 250 characters): what the episode covered, concrete enough that someone who sees only this line can tell whether a new topic relates to it. Name the core paper, method or phenomenon, not just the field.
+- `reference_summary` (English Markdown, 200 to 400 words), for a script writer who wants to refer back:
+  - the core claims and the key numbers, as they were said in the episode;
+  - which concepts were explained and **how** (the analogies and examples used), so a later episode can call them back instead of explaining again;
+  - terms that were defined;
+  - limits, controversies and questions the episode left open.
+  Only what the episode actually said; nothing new.
+- `key_concepts`: 3 to 10 central concepts or methods, short noun phrases in English.
+- `follow_ups`: up to {{ max_follow_ups }} follow-up episodes, the most rewarding first. Good follow-ups go deeper into something the episode only touched, explain a foundation it relied on, cover the critique or a competing approach, or follow the newest work. Each must be a substantial episode of its own{% if library %}, and must not repeat an earlier episode (building on one is fine){% endif %}. In {{ language_name }}:
+  - `title`: a working title, at most 60 characters;
+  - `topic`: the request for the new episode, one to three sentences that make sense without this episode (name papers, methods or authors where you can);
+  - `why`: one sentence on what the listener gains and how it builds on this episode.{% if series %}
+  Make the **first** suggestion the natural next part of the series "{{ series.title }}", following its common thread; the others may branch off.{% endif %}

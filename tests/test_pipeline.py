@@ -43,7 +43,8 @@ async def test_full_pipeline(settings):
     stages = []
     mp3 = await run_pipeline(ctx, progress=lambda s, d: stages.append(s))
 
-    assert [s for i, s in enumerate(stages) if i == 0 or stages[i - 1] != s] == ["research", "script", "tts", "audio"]
+    assert [s for i, s in enumerate(stages) if i == 0 or stages[i - 1] != s] == ["research", "script", "tts", "audio",
+                                                                                  "memory"]
     assert mp3.exists() and mp3.stat().st_size > 1000
     research_md = (job / "research.md").read_text()
     assert research_md.startswith("# Testthema")
