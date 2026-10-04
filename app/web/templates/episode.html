@@ -7,7 +7,7 @@
   {% if job.title %}<p class="muted">Thema: {{ job.topic }}</p>{% endif %}
   <p class="meta">
     <span class="badge {{ job.status }}" data-field="status">{{ status_labels[job.status] }}</span>
-    {{ lengths.get(options.get("length"), "") }} · Recherche {{ depths.get(options.get("research_depth"), "") }}{% if options.get("handout") %} · mit Handout{% endif %}{% if options.get("audience") == "newcomer" %} · für Neueinsteiger{% endif %} · Stimme: {% if tts_used %}{{ tts_labels.get(tts_used, tts_used) }}{% if tts_used != tts_planned %} (Ersatz für {{ tts_labels[tts_planned] }}){% endif %}{% else %}{{ tts_labels[tts_planned] }}{% endif %} · {{ languages.get(options.get("language", "de"), "") }}
+    {{ lengths.get(options.get("length"), "") }} · Recherche {{ depths.get(options.get("research_depth"), "") }}{% if options.get("handout") %} · mit Handout{% endif %}{% if options.get("audience") == "newcomer" %} · für Neueinsteiger{% endif %}{% if options.get("source_filter", "all") != "all" %} · {{ {"peer_reviewed": "nur peer-reviewed", "top": "nur Top-Quellen"}[options.source_filter] }}{% endif %}{% if options.get("research_mode") == "overview" %} · Überblick (Reviews zuerst){% endif %} · Stimme: {% if tts_used %}{{ tts_labels.get(tts_used, tts_used) }}{% if tts_used != tts_planned %} (Ersatz für {{ tts_labels[tts_planned] }}){% endif %}{% else %}{{ tts_labels[tts_planned] }}{% endif %} · {{ languages.get(options.get("language", "de"), "") }}
     · {{ job.created_at | time }}
   </p>
 
@@ -278,6 +278,7 @@
     <tr class="{% if c.id in selected %}selected{% endif %}">
       <td>{{ c.score | round | int }}</td>
       <td>{% if c.id in selected %}<span class="badge done">gelesen</span> {% endif %}{% if c.url | safe_url %}<a href="{{ c.url | safe_url }}" rel="noopener noreferrer" target="_blank">{{ c.title }}</a>{% else %}{{ c.title }}{% endif %}
+        {% if c.venue or c.is_review or c.top_tier or c.citations %}<br><span class="hint">{% if c.venue %}{{ c.venue }}{% if c.year %} {{ c.year }}{% endif %}{% elif c.peer_reviewed == "no" %}Preprint/ohne Peer-Review{% endif %}{% if c.citations %} · {{ c.citations }} Zitate{% endif %}</span>{% if c.is_review %} <span class="badge">Review</span>{% endif %}{% if c.top_tier %} <span class="badge">Top</span>{% endif %}{% endif %}
         <br><span class="muted">{{ c.reason }}</span>
         {% if c.id in paper_by_id %}<br><span class="hint">{% if paper_by_id[c.id].file %}Volltext geladen ({{ paper_by_id[c.id].format | upper }}){% else %}Volltext nicht verfügbar – per Webabruf gelesen{% endif %}</span>{% endif %}</td>
       <td>{% for a in c.found_by %}{{ task_labels.get(a) or angle_labels.get(a, a) }}{% if not loop.last %}, {% endif %}{% endfor %}</td>

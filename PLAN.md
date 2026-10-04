@@ -282,6 +282,20 @@ testable and resumable.
   points, and the later planned parts (not to be covered in depth here; the teaser
   points to the next one).
 
+### Source restrictions and overview mode
+- `options.source_filter`: `all`, `peer_reviewed` (journal or conference, accepted
+  arXiv versions count; no plain preprints) or `top` (main track of a top venue of
+  the field, or a top paper by citations). Scouts report `venue`, `peer_reviewed`,
+  `top_tier`, `is_review` and `citations` from the API metadata (guidance in the
+  `paper-research` skill, `reference/venues.md`); our code drops every candidate
+  that does not qualify before the selection and logs what it dropped. If none is
+  left, the research stops with a clear message.
+- `options.research_mode = "overview"` (always for series planning): recent reviews
+  and surveys first. The plan always has a review scout, and a recent review (≤ 4
+  years) is put first in the reading order if the selection missed it.
+- The series page draws the learning path (`builds_on`) as an SVG tree, open when
+  it branches, collapsed when it is a plain chain.
+
 ### Robustness
 - Claude failures are classified; transient ones (rate limit, overload, network,
   killed process, unknown crash) are retried after 30 s and 90 s. At most

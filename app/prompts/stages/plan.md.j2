@@ -39,6 +39,19 @@ In the series plan, this part's goal is: {{ series.planned.goal }}{% if series.p
 {% endif %}{% if series.upcoming %}
 Later planned parts cover: {% for ep in series.upcoming %}{{ ep.title }}{% if not loop.last %}; {% endif %}{% endfor %}. Do not research their content in depth.
 {% endif %}{% endif %}
+{% if source_filter | default("all") == "peer_reviewed" %}
+# Only peer-reviewed sources
+
+The listener wants only **peer-reviewed** work: papers published in a journal or in conference proceedings (an arXiv version of such a paper is fine). No plain preprints, blogs, news or reports. The server drops every source not marked as peer-reviewed.
+{% elif source_filter | default("all") == "top" %}
+# Only top sources
+
+The listener wants only **top work**: papers at a top venue of the field (main track of e.g. NeurIPS, ICML, ICLR, CVPR, ACL; Nature, Science, PNAS, the field's flagship journals), or top papers by citations. The server drops every source not marked as top-tier.
+{% endif %}{% if research_mode | default("episode") == "overview" %}
+# Overview of a field
+
+This research maps a whole field. **Recent review articles and surveys (since {{ review_since }}) come first**: they give the structure, the main lines of work and the open problems. Then the seminal papers of each line, then the newest state of the art. If no recent review exists, say so and rely on the most cited recent work instead.
+{% endif %}
 # General research guidance
 
 {{ blocks.research }}
@@ -55,4 +68,6 @@ Every task must stand on its own, because the scout sees nothing else:
 - `search_hints`: concrete terms, names, arXiv IDs, venues or APIs to start with. Start broad, then narrow.
 - `avoid`: what belongs to another scout, so the work is not duplicated.
 
-Write everything in English.
+{% if source_filter | default("all") != "all" %}Write the restriction on sources into every scout task (in `objective` or `search_hints`), since the scouts only see their task.
+{% endif %}{% if research_mode | default("episode") == "overview" %}One task must look for recent reviews and surveys of the field.
+{% endif %}Write everything in English.

@@ -28,6 +28,19 @@ Key questions the episode must answer:
 - Start with: {{ task.search_hints }}
 {% if task.avoid %}- Out of scope (other scouts cover it): {{ task.avoid }}
 {% endif %}
+{% if source_filter | default("all") == "peer_reviewed" %}
+# Only peer-reviewed sources
+
+The listener wants only **peer-reviewed** work: papers published in a journal or in conference proceedings (an arXiv version of such a paper is fine). No plain preprints, blogs, news or reports. The server drops every source not marked as peer-reviewed.
+{% elif source_filter | default("all") == "top" %}
+# Only top sources
+
+The listener wants only **top work**: papers at a top venue of the field (main track of e.g. NeurIPS, ICML, ICLR, CVPR, ACL; Nature, Science, PNAS, the field's flagship journals), or top papers by citations. The server drops every source not marked as top-tier.
+{% endif %}{% if research_mode | default("episode") == "overview" %}
+# Overview of a field
+
+This research maps a whole field. **Recent review articles and surveys (since {{ review_since }}) come first**: they give the structure, the main lines of work and the open problems. Then the seminal papers of each line, then the newest state of the art. If no recent review exists, say so and rely on the most cited recent work instead.
+{% endif %}
 # General research guidance
 
 {{ blocks.research }}
@@ -41,5 +54,6 @@ Key questions the episode must answer:
 5. Prefer primary sources (papers, preprints, project pages) over press releases, SEO pages and blogs.
 6. Rate each source honestly from 0 to 10 by how much it helps answer the key questions within your task. Do not drop a source just because it is not a perfect fit; give it a lower score instead.
 7. The `quote` must be verbatim from the abstract or the source. Write `reason` in English, one sentence.
+8. For every paper fill in `venue`, `peer_reviewed`, `top_tier`, `is_review` and `citations` from the API metadata (ask Semantic Scholar for `venue,publicationTypes,citationCount`); the `paper-research` skill's `reference/venues.md` says how to decide. Use `unknown` rather than guessing.{% if source_filter | default("all") != "all" %} Return only sources that meet the restriction above; the others are dropped anyway.{% endif %}
 
 Return {{ count }} to {{ count + 4 }} candidates. Fill in `pdf_url` when you know a direct full-text link.

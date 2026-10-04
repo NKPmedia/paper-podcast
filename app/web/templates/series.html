@@ -31,6 +31,9 @@
   </label>
   <label class="check"><input type="checkbox" name="handout"> Handout als PDF zu jeder Folge</label>
 </details>
+<label>Quellen <span class="hint">gilt für die Planungsrecherche und alle Folgen</span>
+  <select name="source_filter">{% for value, label in source_filters.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>
+</label>
 {% endmacro %}
 
 {% block content %}
@@ -38,7 +41,7 @@
   <h1>Reihen</h1>
   <p>Eine Reihe bündelt Folgen in einer festen Reihenfolge. Jeder Teil kennt den roten Faden und die bisherigen Teile, beginnt mit einem kurzen „Was bisher geschah“ und endet mit einem Ausblick.</p>
   <h2>Reihe von Claude planen lassen</h2>
-  <p class="hint">Claude recherchiert das Gebiet gründlich (wie bei „Gründlich“, mit bis zu 7 gelesenen Papern), findet einen Lernpfad und plant die Folgen: Ziel, Inhalte, Quellen und worauf jede aufbaut. Du siehst den Plan, kannst ihn mit eigenen Worten anpassen und die Folgen einzeln oder alle auf einmal erzeugen. Die Planung dauert meist 15–30 Minuten.</p>
+  <p class="hint">Claude recherchiert das Gebiet gründlich im Überblicks-Modus: zuerst aktuelle Reviews und Surveys (falls es welche gibt), dann die grundlegenden Paper jeder Forschungslinie, bis zu 7 gelesene Paper. Daraus findet Claude einen Lernpfad und plant die Folgen: Ziel, Inhalte, Quellen und worauf jede aufbaut. Du siehst den Plan, kannst ihn mit eigenen Worten anpassen und die Folgen einzeln oder alle auf einmal erzeugen. Die Planung dauert meist 15–30 Minuten.</p>
   <form method="post" action="/series/plan">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label>Worum soll es gehen?
@@ -98,6 +101,15 @@
     {% endfor %}
   </ol>
   {% else %}<p class="hint">Noch keine Folgen.</p>{% endif %}
+
+  {% set graph = graphs.get(s.id) %}
+  {% if graph %}
+  <details class="graph" {% if graph.branched %}open{% endif %}>
+    <summary>Lernpfad als Diagramm</summary>
+    <p class="hint">Pfeile zeigen, worauf eine Folge aufbaut. <span class="legend done">fertig</span> <span class="legend created">angelegt</span> <span class="legend planned">geplant</span></p>
+    <div class="graph-scroll">{{ graph.svg | safe }}</div>
+  </details>
+  {% endif %}
 
   <div class="actions">
     {% if plan.get("items") %}

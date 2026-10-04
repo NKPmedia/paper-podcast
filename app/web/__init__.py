@@ -32,7 +32,7 @@ from app.errors import split_error
 from app.db import JobStore
 from app.jobs import ContextFactory, JobError, JobService, Worker
 from app.episode_log import call_tokens, fmt_tokens, read_log, timeline, token_totals
-from app.models import MAX_PLANNED, MIN_PLANNED, Audience, EpisodeOptions, EpisodeRequest, Language, Length, ResearchDepth
+from app.models import MAX_PLANNED, MIN_PLANNED, Audience, SourceFilter, EpisodeOptions, EpisodeRequest, Language, Length, ResearchDepth
 from app.series import SeriesError, SeriesStore
 from app.tts import TTS_LABELS, resolve_tts
 from app.pipeline import clarify
@@ -43,7 +43,7 @@ from app.pipeline import STAGE_ARTIFACTS, prompt_context, slugify, stages_for
 from app.prompts import BLOCK_DESCRIPTIONS, PromptStore
 from app.skills import STAGES as SKILL_STAGES
 from app.skills import MAX_ZIP_BYTES, SkillError, SkillStore
-from app.web import settings_ui
+from app.web import series_graph, settings_ui
 from app.web.connectors import base_url, register_feed
 
 log = logging.getLogger(__name__)
@@ -67,6 +67,11 @@ DEPTH_OPTIONS = {
     for depth in ResearchDepth
 }
 LANGUAGE_LABELS = {"de": "Deutsch", "en": "Englisch"}
+SOURCE_FILTER_LABELS = {
+    "all": "Alle Quellen",
+    "peer_reviewed": "Nur peer-reviewed (Journals und Konferenzen, keine reinen Preprints)",
+    "top": "Nur Top-Konferenzen/-Journals und Top-Paper",
+}
 AUDIENCE_LABELS = {
     "regular": "Ich kenne die bisherigen Folgen – Bekanntes nur kurz auffrischen, dafür tiefer einsteigen",
     "newcomer": "Für Neueinsteiger – alles erklären, auch was frühere Folgen schon erklärt haben",
@@ -454,6 +459,7 @@ def create_app(
                      "follows_title": (parent or {}).get("title", ""), "series": series},
             audiences=AUDIENCE_LABELS, all_series=series_store.all(), parts=series_store.parts_by_episode(),
             tts_default=resolve_tts(settings), gemini_ready=bool(settings.gemini_api_key),
+            source_filters=SOURCE_FILTER_LABELS,
             jobs=store.list(100),
             lengths=LENGTH_LABELS, depths=DEPTH_OPTIONS, languages=LANGUAGE_LABELS,
             blocks=BLOCK_DESCRIPTIONS, block_titles=BLOCK_TITLES,
@@ -495,6 +501,7 @@ def create_app(
                 follows=follows_id(str(form.get("follows", ""))),
                 audience=Audience(form.get("audience", "regular")),
                 tts=str(form.get("tts", "")),
+                source_filter=SourceFilter(form.get("source_filter", "all")),
             )
             series_id = str(form.get("series", ""))
             if series_id and not series_store.get(series_id):
@@ -577,7 +584,7 @@ def create_app(
             audiences=AUDIENCE_LABELS,
             tts_used=(_read_json(job_dir / "episode.json") or {}).get("tts", ""),
             tts_planned=resolve_tts(settings, request_data.get("request", {}).get("options", {}).get("tts", "")),
-            tts_labels=TTS_LABELS,
+            tts_labels=TTS_LABELS, source_filters=SOURCE_FILTER_LABELS,
             planned_series=next((s for s in series_store.all() if (s.get("plan") or {}).get("job") == job_id), None)
             if job.kind == "series_plan" else None,
             series=(in_series := series_store.of_episode(job_id)),
@@ -669,7 +676,7 @@ def create_app(
         options = EpisodeOptions(
             length=parent.length, research_depth=parent.research_depth, handout=parent.handout,
             language=parent.language, clarify=parent.clarify, follows=follows_id(job_id), audience=parent.audience,
-            tts=parent.tts,
+            tts=parent.tts, source_filter=parent.source_filter,
         )
         new_job = service.submit(EpisodeRequest(topic=suggestions[index]["topic"], options=options), origin="web")
         if in_series := series_store.of_episode(job_id):  # a follow-up of a series part continues the series
@@ -707,11 +714,13 @@ def create_app(
     @app.get("/series")
     async def series_page(request: Request):
         require_user(request)
-        return render(request, "series.html", all_series=series_store.all(),
-                      jobs={j.id: j for j in store.list(1000, kind=None)},
+        all_series = series_store.all()
+        jobs = {j.id: j for j in store.list(1000, kind=None)}
+        return render(request, "series.html", all_series=all_series, jobs=jobs,
+                      graphs={s["id"]: series_graph.render(s, jobs) for s in all_series},
                       lengths=LENGTH_LABELS, languages=LANGUAGE_LABELS, audiences=AUDIENCE_LABELS,
                       tts_default=resolve_tts(settings), gemini_ready=bool(settings.gemini_api_key),
-                      min_parts=MIN_PLANNED, max_parts=MAX_PLANNED)
+                      min_parts=MIN_PLANNED, max_parts=MAX_PLANNED, source_filters=SOURCE_FILTER_LABELS)
 
     def episode_options_from(form) -> dict:
         """Options for the episodes of a planned series, from the planning form."""
@@ -722,6 +731,7 @@ def create_app(
             "handout": form.get("handout") == "on",
             "tts": str(form.get("tts", "")) if str(form.get("tts", "")) in TTS_LABELS else "",
             "research_depth": ResearchDepth(form.get("depth", "medium")).value,
+            "source_filter": SourceFilter(form.get("source_filter", "all")).value,
         }
 
     def parts_count(form) -> int:
@@ -790,6 +800,7 @@ def create_app(
             research_depth=ResearchDepth(stored.get("research_depth", "medium")),
             audience=Audience(stored.get("audience", "regular")), handout=bool(stored.get("handout")),
             tts=stored.get("tts", ""), clarify=False,
+            source_filter=SourceFilter(stored.get("source_filter", "all")),
         )
         job = service.submit(EpisodeRequest(topic=item["topic"], options=options), origin="web")
         series_store.assign_item(series["id"], index, job.id)  # before the next await: the worker sees it

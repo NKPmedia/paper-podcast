@@ -43,6 +43,9 @@ async def test_planning_researches_deeply_and_stores_the_plan(settings):
     done = service.store.get(job.id)
     assert done.status == "done" and done.title == "Batterien von morgen"
     plan_call = claude.calls_for("ResearchPlan")[0]
+    assert "Recent review articles and surveys" in plan_call.prompt  # overview mode
+    options = json.loads((service.job_dir(job.id) / "request.json").read_text())["request"]["options"]
+    assert options["research_mode"] == "overview" and options["research_depth"] == "deep"
     assert "whole podcast series" in plan_call.prompt and "between 3 and 6 scout tasks" in plan_call.prompt
     (call,) = claude.calls_for("SeriesPlanResult")
     assert "Plan exactly **3** new parts" in call.prompt and "Festkörperbatterien verstehen" in call.prompt
@@ -116,6 +119,7 @@ def test_series_planning_on_the_website(web_settings):
 
         page = client.get("/series").text
         assert "Batterien von morgen" in page and "Wie Ionen wandern" in page and "Planung anpassen" in page
+        assert "Lernpfad als Diagramm" in page and "<svg" in page
         assert "Festkörperbatterien verstehen" not in client.get("/").text  # plan jobs are not episodes
         assert "Reihenplanung" in client.get(f"/episodes/{job.id}").text
 

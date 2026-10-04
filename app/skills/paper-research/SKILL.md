@@ -28,6 +28,10 @@ description: Find and rate scientific papers via the arXiv, Semantic Scholar and
 
 Mark anything unconfirmed as such. If two sources disagree, note both.
 
+When a request restricts sources to **peer-reviewed** or **top** work, or asks for **reviews and
+surveys**, read `reference/venues.md`: how to tell from the API metadata, which venues count as top,
+and how to find recent reviews.
+
 ## Tips
 
 - WebFetch works best with a specific question, e.g. "List the main quantitative results with their numbers."

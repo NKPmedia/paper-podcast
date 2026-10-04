@@ -120,6 +120,12 @@ def _describe(entry: dict) -> tuple[str, str, str]:
         detail = "\n".join(f"{p.get('title', '')[:70]} · {fmt_tokens(p.get('tokens'))} Tokens · {p.get('reason', '')}"
                            for p in papers)
         return "info", text, detail
+    if event == "source_filter":
+        label = {"peer_reviewed": "peer-reviewed", "top": "Top-Quellen"}.get(entry.get("filter"), entry.get("filter"))
+        removed = entry.get("removed") or []
+        return ("warn" if removed else "info",
+                f"Quellen eingeschränkt auf {label}: {entry.get('kept', 0)} bleiben, {len(removed)} aussortiert",
+                "\n".join(removed))
     if event == "series_plan":
         text = (f"Reihe {'überarbeitet' if entry.get('revision') else 'geplant'}: „{entry.get('title', '')}“ mit "
                 f"{entry.get('parts', 0)} geplanten Teil(en)"

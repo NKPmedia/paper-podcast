@@ -8,7 +8,7 @@
 - PDF: `https://arxiv.org/pdf/<id>`
 
 ## Semantic Scholar Graph API
-- Search: `https://api.semanticscholar.org/graph/v1/paper/search?query=<terms>&limit=10&fields=title,year,authors,citationCount,externalIds,abstract,url`
+- Search: `https://api.semanticscholar.org/graph/v1/paper/search?query=<terms>&limit=10&fields=title,year,authors,citationCount,externalIds,abstract,url,venue,publicationTypes`
 - A paper: `https://api.semanticscholar.org/graph/v1/paper/arXiv:<id>?fields=title,year,authors,abstract,citationCount,tldr,url`
   - Other ID forms: `DOI:<doi>`, or the S2 paper ID.
 - Citing papers: `.../paper/<id>/citations?fields=title,year,citationCount,isInfluential&limit=20`

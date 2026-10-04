@@ -23,7 +23,7 @@ from app.pipeline import (
     run_pipeline,
 )
 from app.pipeline import series_plan
-from app.models import EpisodeOptions, Language, Length, ResearchDepth
+from app.models import EpisodeOptions, Language, Length, ResearchDepth, SourceFilter
 from app.series import SeriesStore
 from app.prompts import PromptStore
 
@@ -94,7 +94,8 @@ class JobService:
         if not goal:
             raise JobError("Bitte beschreiben, worum es in der Reihe gehen soll.")
         request = EpisodeRequest(topic=goal, options=EpisodeOptions(
-            research_depth=ResearchDepth.deep, clarify=False,
+            research_depth=ResearchDepth.deep, clarify=False, research_mode="overview",
+            source_filter=SourceFilter(episode_options.get("source_filter", "all")),
             length=Length(episode_options.get("length", "mittel")),
             language=Language(episode_options.get("language", "de")),
             extra_instructions=series_plan.RESEARCH_HINT,

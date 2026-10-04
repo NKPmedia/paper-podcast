@@ -39,6 +39,14 @@ class Audience(str, Enum):
     newcomer = "newcomer"  # explain everything, earlier episodes are only pointers
 
 
+class SourceFilter(str, Enum):
+    """Which sources the research may use."""
+
+    all = "all"
+    peer_reviewed = "peer_reviewed"  # published after peer review (journal or conference); no plain preprints
+    top = "top"  # a top venue of the field, or a top paper (very highly cited)
+
+
 class ResearchDepth(str, Enum):
     quick = "quick"
     medium = "medium"
@@ -63,6 +71,9 @@ class EpisodeOptions(BaseModel):
     # Speech engine for this episode: "edge" or "gemini"; "" = the default from the settings.
     # The other engine (if available) takes over when the chosen one fails.
     tts: Literal["", "edge", "gemini"] = ""
+    source_filter: SourceFilter = SourceFilter.all
+    # "overview": map a whole field, recent reviews and surveys first (used for series planning).
+    research_mode: Literal["episode", "overview"] = "episode"
 
 
 class EpisodeRequest(BaseModel):
@@ -123,6 +134,15 @@ class Candidate(BaseModel):
     score: float = Field(ge=0, le=10, description="Relevance for the episode, 0 to 10")
     reason: str = Field(description="One sentence on why the source is relevant")
     quote: str = Field(default="", description="Verbatim quote from the abstract")
+    venue: str = Field(default="", description="Journal or conference where it was published, from the API "
+                                               "metadata (e.g. 'NeurIPS 2023', 'Nature'); empty for a plain preprint")
+    peer_reviewed: Literal["yes", "no", "unknown"] = Field(
+        default="unknown", description="'yes' if published in a peer-reviewed journal or conference proceedings "
+        "(including accepted versions on arXiv), 'no' for preprints, blogs, news and reports")
+    top_tier: bool = Field(default=False, description="True if published at a top venue of its field, or a top paper "
+                                                      "by citations (see the paper-research skill, venues.md)")
+    is_review: bool = Field(default=False, description="True for review articles, surveys and tutorials")
+    citations: int | None = Field(default=None, description="Citation count from Semantic Scholar or OpenAlex")
 
 
 class ScoutResult(BaseModel):
