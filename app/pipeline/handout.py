@@ -18,6 +18,7 @@ from app.latex import LatexRejected, build_document, check_body, compile_pdf, ex
 from app.models import Handout, HandoutFix, PlotFixes, Script, Source, json_schema
 from app.plots import render_plot
 from app.errors import PodcastError
+from app.pipeline.research import papers_for_prompt
 from app.prompts import render_stage
 
 NAME = "handout"
@@ -50,8 +51,7 @@ async def run(ctx) -> None:
     ctx.skills.install(ctx.job_dir, skills)
     script = Script.model_validate_json(ctx.path("script.json").read_text(encoding="utf-8"))
     sources = [Source(**s) for s in json.loads(ctx.path("sources.json").read_text(encoding="utf-8"))]
-    index = ctx.path("papers/index.json")
-    papers = [p for p in json.loads(index.read_text(encoding="utf-8")) if p["file"]] if index.exists() else []
+    papers = papers_for_prompt(ctx.job_dir)  # with notes on cut text, appendix and reading depth
     model = ctx.settings.script_model
 
     async def ask(prompt: str, schema, resume: str | None = None, step: str = "write", max_turns=None):

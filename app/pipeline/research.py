@@ -36,7 +36,7 @@ from app.models import (
     Selection,
     json_schema,
 )
-from app.papers import download_all, normalize_arxiv_id, to_index
+from app.papers import coverage_note, download_all, normalize_arxiv_id, to_index
 from app.pipeline import clarify
 from app.prompts import render_stage
 
@@ -352,6 +352,21 @@ def measure(ctx, papers: list[dict]) -> list[dict]:
     return papers
 
 
+def papers_for_prompt(job_dir) -> list[dict]:
+    """Downloaded full texts for later stages, each with a ``note`` that says what an agent
+    does not see of it (cut main text, separate appendix, removed references, read only in part)."""
+    index_path = job_dir / "papers" / "index.json"
+    if not index_path.exists():
+        return []
+    reading_path = job_dir / "reading.json"
+    modes = {e["id"]: e["mode"] for e in _read_json(reading_path)} if reading_path.exists() else {}
+    papers = []
+    for paper in _read_json(index_path):
+        if paper.get("file") and modes.get(paper["id"]) != "skipped":
+            papers.append({**paper, "note": coverage_note(paper, modes.get(paper["id"], ""))})
+    return papers
+
+
 # --- 6. Reading ------------------------------------------------------------------------
 
 
@@ -362,10 +377,11 @@ async def read_and_write_notes(ctx, candidates, selection, plan, reading, profil
     size = f"{tokens / 1000:.0f}k" if tokens >= 1000 else str(tokens)
     await ctx.notify(NAME, f"Claude liest {len(read)} Paper ({full} komplett, ~{size} Tokens)")
     by_id = {c.id: c for c in candidates}
+    index = {p["id"]: p for p in _read_json(ctx.path("papers/index.json"))} if ctx.path("papers/index.json").exists() else {}
     read_ids = {e["id"] for e in read}
     prompt = render_stage(
         "read", blocks=ctx.blocks, plan=plan, focus=selection.focus,
-        papers=[(e, by_id[e["id"]]) for e in read],
+        papers=[(e, by_id[e["id"]], coverage_note(index.get(e["id"], {}))) for e in read],
         others=[c for c in candidates if c.id not in read_ids][:15],
         searches=GAP_SEARCHES, language_name=ctx.request.options.language.english_name, **_common(ctx),
     )

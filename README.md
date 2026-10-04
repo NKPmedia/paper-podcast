@@ -204,8 +204,24 @@ Research depth sets the effort (`PROFILES` in `app/pipeline/research.py`):
 | `medium` | 2–4 | 5 | 7 | 5 | ~90k tokens |
 | `deep` | 3–6 | 7 | 10 | 7 | ~130k tokens |
 
-**How many papers are read depends on their length.** After the download, every paper
-is measured (about 4 characters per token; a typical paper is 8k–15k tokens, long ones
+**Main text first, and nothing is cut silently.** Every downloaded paper is split into
+its main text (`papers/<id>.md`) and, if it has one, its appendix
+(`papers/<id>.appendix.md`); the reference list is removed. The length cap
+(`paper_max_chars`) applies to the main text alone, so the main part almost always
+fits completely. Only if the main text itself is longer is it cut, at a paragraph
+break, with a visible `[… TRUNCATED …]` marker. Whatever an agent does not get is
+stated in three places:
+- at the top of the file itself;
+- in the research prompt, as "Coverage" for each paper;
+- in the script and handout prompts, together with whether the research read the
+  paper completely or only its key sections.
+
+The research notes also mark sources that were read only selectively or whose
+main text was cut. The episode page shows "Hauptteil gekürzt", "Anhang separat" and
+"Literaturliste entfernt" per paper.
+
+**How many papers are read depends on their length.** After the download, every main
+text is measured (about 4 characters per token; a typical paper is 8k–15k tokens, long ones
 are capped at 35k by `paper_max_chars`). In the order the selection ranked them:
 - the first paper (the core paper) is always read completely;
 - the next ones are read completely while the budget lasts;

@@ -11,6 +11,7 @@ from app.claude import ClaudeCall
 from app.models import Script, Source, json_schema
 from app.errors import PodcastError
 from app.pipeline import clarify
+from app.pipeline.research import papers_for_prompt
 from app.prompts import render_stage
 
 NAME = "script"
@@ -72,8 +73,7 @@ async def run(ctx) -> None:
     notes = ctx.path("research.md").read_text(encoding="utf-8")
     sources = [Source(**s) for s in json.loads(ctx.path("sources.json").read_text(encoding="utf-8"))]
     target_words = ctx.prompt_context["target_words"]
-    index = ctx.path("papers/index.json")
-    papers = [p for p in json.loads(index.read_text(encoding="utf-8")) if p["file"]] if index.exists() else []
+    papers = papers_for_prompt(ctx.job_dir)  # with notes on cut text, appendix and reading depth
 
     prompt = render_stage(
         "script",

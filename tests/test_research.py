@@ -114,7 +114,7 @@ async def test_arxiv_html_preferred(tmp_path):
     paper = await download(ranked(id="arxiv:2401.00001", arxiv_id="2401.00001"), routes, out=tmp_path)
     assert paper.format == "html" and paper.file == "papers/arxiv_2401.00001.md" and not paper.error
     text = (tmp_path / "arxiv_2401.00001.md").read_text()
-    assert text.startswith("# Ein Paper\n\nQuelle: https://arxiv.org/html/2401.00001")
+    assert text.startswith("# Ein Paper\n\nSource: https://arxiv.org/html/2401.00001")
     assert paper.lines == text.count("\n")
 
 
@@ -146,7 +146,9 @@ async def test_doi_via_openalex_and_truncation(tmp_path):
     }
     paper = await download(ranked(id="doi:10.1/x", doi="10.1/x"), routes, out=tmp_path, max_chars=3000)
     assert paper.source_url == "https://oa.example.org/x" and paper.truncated
-    assert "[… gekürzt …]" in (tmp_path / "doi_10.1_x.md").read_text()
+    text = (tmp_path / "doi_10.1_x.md").read_text()
+    assert "TRUNCATED: the last" in text and "> Note: this file holds the main text" in text
+    assert "The main text was cut" in text and paper.omitted_chars > 0
 
 
 async def test_size_limit(tmp_path):
@@ -342,3 +344,61 @@ def test_short_papers_fill_the_budget():
     long = [{"id": str(i), "file": f"papers/{i}.md", "tokens": 35_000} for i in range(10)]
     modes = [e["mode"] for e in plan_reading(long, PROFILES[ResearchDepth.deep])]
     assert modes.count("full") == 3 and modes.count("selective") == 1  # long papers: the budget applies first
+
+
+# --- main text, references, appendix ---------------------------------------------
+
+
+def test_split_paper_drops_references_and_keeps_appendix_separate():
+    from app.papers import split_paper
+
+    body = "## 1 Introduction\n\n" + "Main text. " * 300 + "\n\n## 6 Conclusion\n\nWe conclude.\n\n"
+    main, appendix, refs = split_paper(body + "## References\n\n[1] A. 2020.\n\n## A Proofs\n\nProof.\n")
+    assert main.endswith("We conclude.") and appendix.startswith("## A Proofs") and refs
+    main, appendix, refs = split_paper(body + "## Appendix A Details\n\nX\n\n## References\n\n[1] Z")
+    assert main.endswith("We conclude.") and appendix == "## Appendix A Details\n\nX" and refs
+    # PDF text: plain paragraphs; a sentence that mentions the appendix is not a heading.
+    pdf = "Body. " * 300 + "\n\nAppendix B lists all runs.\n\nMore body.\n\nREFERENCES\n\n[1] Foo."
+    main, appendix, refs = split_paper(pdf)
+    assert main.endswith("More body.") and appendix == "" and refs
+    toc = "Contents\n\nReferences\n\n" + "Body. " * 300  # an early 'References' is a table of contents
+    assert split_paper(toc) == (toc.rstrip(), "", False)
+
+
+async def test_long_paper_keeps_main_text_and_moves_appendix(tmp_path):
+    from app.papers import PaperFile, coverage_note, save_paper
+    from dataclasses import asdict
+
+    text = ("## 1 Intro\n\n" + "Main. " * 2000 + "\n\n## References\n\n" + "[1] Ref.\n\n" * 500
+            + "## A Extra results\n\n" + "Appendix. " * 300)
+    paper = PaperFile(id="arxiv:1", title="T")
+    save_paper(paper, "T", text, "https://x.org", tmp_path, max_chars=50_000)
+    main = (tmp_path / "arxiv_1.md").read_text()
+    assert not paper.truncated and "[1] Ref." not in main and "Appendix." not in main  # main part complete
+    assert paper.appendix_file == "papers/arxiv_1.appendix.md" and paper.references_removed
+    assert "The appendix is in a separate file `papers/arxiv_1.appendix.md`" in main
+    assert "Appendix." in (tmp_path / "arxiv_1.appendix.md").read_text()
+
+    short = PaperFile(id="arxiv:2", title="T")
+    save_paper(short, "T", "## 1 Intro\n\n" + "Main text here. " * 3000, "https://x.org", tmp_path, max_chars=20_000)
+    assert short.truncated and short.omitted_chars > 0
+    assert "TRUNCATED" in (tmp_path / "arxiv_2.md").read_text()
+    note = coverage_note(asdict(short), "selective")
+    assert "main text was cut" in note and "only its key sections were read" in note
+
+
+async def test_later_agents_are_told_what_they_do_not_see(settings):
+    long_html = ARXIV_HTML.replace("</article>", "<section class='ltx_appendix'><h2>Appendix A Extra</h2>"
+                                   "<p>" + "Appendix text. " * 200 + "</p></section></article>")
+    routes = {"https://arxiv.org/html/2401.00001": (200, "text/html", long_html.encode())}
+    claude = FakeClaude(default_responses())
+    job_dir = job(settings, ResearchDepth.quick)
+    await run_pipeline(ctx_for(settings, job_dir, claude, routes=routes))
+    index = json.loads((job_dir / "papers/index.json").read_text())
+    assert index[0]["appendix_file"] == "papers/arxiv_2401.00001.appendix.md"
+    (read,) = claude.calls_for("ResearchResult")
+    assert "Coverage: The appendix is in a separate file `papers/arxiv_2401.00001.appendix.md`" in read.prompt
+    assert "Say what you did not read" in read.prompt
+    (script,) = claude.calls_for("Script")
+    assert "papers/arxiv_2401.00001.appendix.md" in script.prompt
+    assert "During the research its complete main text was read." in script.prompt

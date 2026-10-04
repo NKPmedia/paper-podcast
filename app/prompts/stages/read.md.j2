@@ -24,13 +24,14 @@ Before the research, the listener answered these questions. Follow them; they de
 {% endfor %}{% endif %}
 # Sources to read
 
-The server measured every downloaded paper and set the reading depth so that everything fits into your context.
+The server split every downloaded paper into its main text (one file) and its appendix (a separate file, if any), removed the reference lists, measured the main texts and set the reading depth so that everything fits into your context. The goal is always the complete main text; anything you do not get is stated under "Coverage" and at the top of the file.
 
-{% for entry, cand in papers %}## {{ cand.title }}
+{% for entry, cand, note in papers %}## {{ cand.title }}
 - ID: {{ cand.id }}{% if cand.authors %}, {{ cand.authors }}{% endif %}{% if cand.year %} ({{ cand.year }}){% endif %}
 {% if entry.file %}- Full text: `{{ entry.file }}` (~{{ (entry.tokens / 1000) | round(1) }}k tokens)
-- Reading depth: {% if entry.mode == "full" %}**complete**{% else %}**selective** (too long for the remaining budget){% endif %}
-{% else %}- No full text could be downloaded. Use WebFetch with specific questions (at most 4 fetches): {{ cand.url or cand.pdf_url or ("https://arxiv.org/abs/" ~ cand.arxiv_id if cand.arxiv_id else "(find the URL)") }}
+- Reading depth: {% if entry.mode == "full" %}**complete** main text{% else %}**selective** (the main text is too long for the remaining budget){% endif %}
+{% if note %}- Coverage: {{ note }}
+{% endif %}{% else %}- No full text could be downloaded. Use WebFetch with specific questions (at most 4 fetches): {{ cand.url or cand.pdf_url or ("https://arxiv.org/abs/" ~ cand.arxiv_id if cand.arxiv_id else "(find the URL)") }}
 {% endif %}
 {% endfor %}{% if others %}
 # Sources not read (only if needed)
@@ -41,12 +42,14 @@ The server measured every downloaded paper and set the reading depth so that eve
 
 1. **Get each paper's outline first:** Grep the file for its headings (pattern `^#`, with line numbers) so you know where each section starts.
 2. **Read the papers with the Read tool**, in chunks with `offset` and `limit` (about 600 lines per call), most important first:
-   - **complete**: read the whole paper from start to end. Skip only the reference list and appendices unrelated to the key questions.
+   - **complete**: read the whole main text from start to end.
    - **selective**: read the abstract, introduction, method overview, main results and conclusion; open other sections only when they answer a key question directly.
+   - **Appendix files**: open them only for a specific detail (a proof, a hyperparameter, an extra result), with `offset`/`limit`.
 3. **Cross-check** the sources: where do they agree, where do they contradict each other? Resolve contradictions, or record them as open.
 4. **Fill gaps.** For every key question the papers do not answer well, run targeted searches (WebSearch or WebFetch, **at most {{ searches }}**), e.g. for current reception, critique or applications.
-5. **Cite with location.** The script will be written later by another model that reads your notes and looks things up in the full texts when needed. Back every concrete claim, number and example with a source tag **and** its location in the full text, i.e. file and line range as the Read tool shows it: `[Gu 2023, papers/arxiv_2312.00752.md:210-245]`. For sources without a full-text file, the tag and URL are enough.
-6. Return:
+5. **Say what you did not read.** In the notes, mark every source that you read only selectively or whose main text was cut, e.g. "(read selectively)" or "(main text cut; conclusion missing)", so the script writer does not assume more than you saw.
+6. **Cite with location.** The script will be written later by another model that reads your notes and looks things up in the full texts when needed. Back every concrete claim, number and example with a source tag **and** its location in the full text, i.e. file and line range as the Read tool shows it: `[Gu 2023, papers/arxiv_2312.00752.md:210-245]`. For sources without a full-text file, the tag and URL are enough.
+7. Return:
    - `title_suggestion`: the episode title **in {{ language_name }}**: short (at most 60 characters), concrete and intriguing. It appears in the episode list, in Telegram and in the podcast feed.
    - `notes`: detailed research notes **in English** as Markdown, organized by the key questions; they are the only basis for the script. Include the focus, key claims, methods explained clearly, concrete results and numbers, context and related work, critique and limitations, good examples and analogies for a lay audience, open questions, and important formulas with a plain-language explanation.
    - `podcast_material` (in English): what makes a conversation lively and would get lost in a plain summary: vivid examples from the papers, good analogies for lay listeners, surprising results or side findings, anecdotes about how the work came about, memorable quotes (verbatim, in the original language), and contested points. At least eight entries, each with its location.

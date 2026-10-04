@@ -37,8 +37,11 @@ Before the research, the listener answered these questions. Follow them; they de
 # Full texts for reference
 
 The notes are your main basis. The full texts of the key papers are also in the working directory:
+Each file holds a paper's main text (reference lists removed); an appendix, if any, is in its own file. Where a note says a text was cut or only partly read during the research, do not make claims about the missing parts without checking them.
 
-{% for p in papers %}- `{{ p.file }}`: {{ p.title }} ({{ p.lines }} lines)
+
+{% for p in papers %}- `{{ p.file }}`: {{ p.title }} ({{ p.lines }} lines){% if p.note %}
+  {{ p.note }}{% endif %}
 {% endfor %}
 Look things up there with the Read tool instead of inventing details: when a chapter needs more depth, when you want a concrete example or number more precisely, or while fact-checking. The locations in the notes (e.g. `papers/….md:210-245`) tell you where to read; use `offset` and `limit` instead of reading whole files.
 {% endif %}

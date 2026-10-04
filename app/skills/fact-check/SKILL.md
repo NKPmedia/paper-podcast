@@ -18,6 +18,6 @@ Go through the script chapter by chapter:
 7. **Language.** Every spoken line, the title, the summary and the chapter titles are in the episode language, even though the notes are in English.
 8. **Length and flow.** Check the total word count against the target. Cut repetition; merge turns that say the same thing twice.
 
-If a note and the paper disagree, the paper wins.
+If a note and the paper disagree, the paper wins. If the cited passage is in a part of a paper that was cut or only partly read (see the notes on each full text), do not state it as certain: check the appendix file or soften the claim.
 
 Fix problems directly in the script. Do not add a list of changes to the output.

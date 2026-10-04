@@ -23,7 +23,10 @@ The conversation explicitly refers to the handout. These items **must** be inclu
 {% endfor %}{% if papers %}
 # Full texts for reference
 
-{% for p in papers %}- `{{ p.file }}`: {{ p.title }} ({{ p.lines }} lines)
+Each file holds a paper's main text (reference lists removed); an appendix, if any, is in its own file. Where a note says a text was cut, do not take numbers from the missing part.
+
+{% for p in papers %}- `{{ p.file }}`: {{ p.title }} ({{ p.lines }} lines){% if p.note %}
+  {{ p.note }}{% endif %}
 {% endfor %}Look up numbers for figures and formulas in the full texts (Read with `offset`/`limit`).
 {% endif %}
 # Your task

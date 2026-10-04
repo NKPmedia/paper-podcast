@@ -164,6 +164,7 @@
 {% if candidates %}
 <details class="card">
   <summary><h2>So wurde recherchiert</h2></summary>
+  {% set paper_by_id = {} %}{% for p in papers %}{% set _ = paper_by_id.update({p.id: p}) %}{% endfor %}
   {% if plan %}
   <h3>Plan</h3>
   <p><strong>Fokus:</strong> {{ plan.focus }}</p>
@@ -180,7 +181,8 @@
     <thead><tr><th>Paper</th><th>Länge</th><th>Gelesen</th></tr></thead>
     <tbody>
     {% for r in reading %}
-    <tr><td>{{ r.title or r.id }}<br><span class="hint">{{ r.reason }}</span></td>
+    {% set pf = paper_by_id.get(r.id, {}) %}
+    <tr><td>{{ r.title or r.id }}<br><span class="hint">{{ r.reason }}{% if pf.truncated %} · Hauptteil gekürzt (~{{ (pf.omitted_chars / 4000) | round | int }}k Tokens fehlen){% endif %}{% if pf.appendix_file %} · Anhang separat ({{ pf.appendix_lines }} Zeilen){% endif %}{% if pf.references_removed %} · Literaturliste entfernt{% endif %}</span></td>
       <td>{% if r.tokens %}{{ (r.tokens / 1000) | round(1) }}k{% else %}–{% endif %}</td>
       <td>{{ {"full": "komplett", "selective": "Kernabschnitte", "webfetch": "per Webabruf", "skipped": "nicht gelesen"}[r.mode] }}</td></tr>
     {% endfor %}
@@ -189,7 +191,6 @@
   <h3>Gefundene Quellen</h3>
   {% endif %}
   {% set selected = selection.selected | map(attribute="id") | list if selection else [] %}
-  {% set paper_by_id = {} %}{% for p in papers %}{% set _ = paper_by_id.update({p.id: p}) %}{% endfor %}
   <p class="hint">Scouts haben {{ candidates | length }} Quellen gefunden und bewertet (0–10); {{ selected | length }} davon wurden für die Lektüre ausgewählt.</p>
   <table class="candidates">
     <thead><tr><th>Bewertung</th><th>Quelle</th><th>Gefunden bei</th></tr></thead>
