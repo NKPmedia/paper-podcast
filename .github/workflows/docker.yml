@@ -79,3 +79,31 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Redeploy the Portainer stack with the new image. Runs only for pushes to main,
+  # after the image was built and pushed. Needs the repository secret
+  # PORTAINER_WEBHOOK_URL (the stack's webhook URL from Portainer); without it the
+  # job only notes that it was skipped.
+  deploy:
+    needs: docker
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Trigger Portainer stack webhook
+        env:
+          WEBHOOK_URL: ${{ secrets.PORTAINER_WEBHOOK_URL }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "::notice::PORTAINER_WEBHOOK_URL is not set – skipping the redeploy."
+            exit 0
+          fi
+          # Portainer answers 204 on success; retry briefly in case it is restarting.
+          status=$(curl --silent --show-error --output response.txt --write-out '%{http_code}' \
+            --retry 3 --retry-delay 10 --retry-all-errors --max-time 120 -X POST "$WEBHOOK_URL")
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            echo "::error::Portainer webhook returned HTTP $status"
+            head -c 2000 response.txt
+            exit 1
+          fi
+          echo "Portainer stack redeploy triggered (HTTP $status)."

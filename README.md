@@ -30,6 +30,26 @@ If the package is private, log in on the server once with a token that has
 `read:packages`. Alternatively, make the package public under GitHub → Packages →
 paper-podcast → Package settings.
 
+### Automatic update in Portainer
+
+After every successful build on `main`, the workflow's `deploy` job calls a Portainer
+stack webhook, so Portainer pulls the new `latest` image and redeploys the stack.
+
+1. In Portainer, open the stack → **Editor** (or **Settings**), enable **Webhook** and
+   **Re-pull image and redeploy**, save, and copy the webhook URL
+   (`https://<portainer>/api/stacks/webhooks/<id>`).
+2. In GitHub → repository **Settings → Secrets and variables → Actions**, add the
+   secret `PORTAINER_WEBHOOK_URL` with that URL.
+
+Notes:
+- Portainer must be reachable from GitHub's runners (the internet).
+- If the package is private, add the GHCR login under Portainer → **Registries**, so it
+  can pull the image.
+- Without the secret the job is skipped with a notice; other branches and pull
+  requests never deploy.
+- Data lives in the `paper-podcast-data` volume and survives the redeploy. A running
+  episode is interrupted and resumes from its last finished step after the restart.
+
 ## Quick start (Docker, build locally)
 
 ```bash
