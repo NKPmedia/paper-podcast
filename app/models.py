@@ -72,7 +72,7 @@ MAX_QUESTIONS = 10
 
 
 class ClarifyingQuestion(BaseModel):
-    question: str = Field(description="The question, short and concrete, in the language of the topic")
+    question: str = Field(description="The question, short and concrete, in the episode language")
     options: list[str] = Field(description="2 to 5 premade answers, the most likely one first")
     allow_free_text: bool = Field(default=True, description="Whether the listener may also answer in their own words")
 

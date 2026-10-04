@@ -174,6 +174,7 @@ async def run(ctx) -> None:
         "title": script.title,
         "summary": script.summary,
         "topic": ctx.request.topic,
+        "language": ctx.request.options.language.value,
         "duration_seconds": round(total_ms / 1000),
         "chapters": [{"title": t, "start_ms": s} for t, s, _ in chapters],
         "sources": [s.model_dump() for s in sources],

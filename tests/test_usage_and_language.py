@@ -67,3 +67,24 @@ def test_renamed_skill_in_saved_config(settings):
 def test_edge_voices_follow_language(settings):
     assert EdgeTTS(settings, "en").voices["host"] == settings.edge_voice_host_en
     assert EdgeTTS(settings).voices["expert"] == settings.edge_voice_expert
+
+
+def test_feed_text_follows_the_languages(settings):
+    from app.feed import episode_language, show_notes
+
+    episode = {"summary": "S", "chapters": [{"start_ms": 0, "title": "Intro"}],
+               "sources": [{"title": "Paper", "url": "https://x.org"}]}
+    english = show_notes({**episode, "language": "en"}, None, "https://pod/e/1", "en")
+    assert "<b>Chapters</b>" in english and "<b>Sources</b>" in english and "Open in the browser" in english
+    assert "<b>Kapitel</b>" in show_notes(episode, None, None, "de")
+    job_dir = settings.data_dir / "old-episode"
+    job_dir.mkdir(parents=True)
+    (job_dir / "request.json").write_text('{"request": {"options": {"language": "en"}}}')
+    assert episode_language({}, job_dir) == "en"  # older episodes: from the request
+    assert episode_language({"language": "de"}, job_dir) == "de"
+
+
+def test_clarify_prompt_uses_the_episode_language():
+    text = render_stage("clarify", topic="The Mamba paper", extra_instructions="", max_questions=10, searches=3,
+                        language_name="German")
+    assert "Write questions and premade answers in German" in text
