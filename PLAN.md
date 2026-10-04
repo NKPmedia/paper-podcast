@@ -270,6 +270,11 @@ testable and resumable.
 - Claude failures are classified; transient ones (rate limit, overload, network,
   killed process, unknown crash) are retried after 30 s and 90 s. At most
   `claude_max_parallel` (default 3) Claude processes run at once.
+- Scouts are retried differently: a scout that fails for a transient reason waits
+  until another scout has ended (so it restarts with one process fewer running,
+  which is what helps when memory ran out), at most twice. Each such failure also
+  lowers the number of scouts running at once for the rest of that research. If no
+  other scout is left, it retries alone after 30 s.
 - Edge TTS waits out throttling (5–120 s between up to 6 attempts) and cancels the
   remaining requests when a line finally fails; finished clips are kept.
 - Stage and scout failures log the full technical details, since the job's error

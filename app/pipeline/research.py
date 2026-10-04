@@ -290,6 +290,7 @@ async def _run_scout(ctx, task_id: str, task, plan: ResearchPlan, profile: Depth
         prompt=prompt, cwd=ctx.job_dir, tools=SCOUT_TOOLS, skills=skills, system_append=ctx.blocks["system"],
         output_schema=json_schema(ScoutResult), max_turns=profile.scout_turns, model=model,
         label=f"Scout „{task.title}“",
+        retry=False,  # run_scouts retries a failed scout once another one has finished
     ))
     candidates = ScoutResult.model_validate(result.structured).candidates
     _log_claude(ctx, f"scout:{task.title}", model, result, candidates=len(candidates))
@@ -297,24 +298,63 @@ async def _run_scout(ctx, task_id: str, task, plan: ResearchPlan, profile: Depth
     return candidates
 
 
+SCOUT_RETRIES = 2  # extra attempts per scout after a transient failure
+ALONE_PAUSE_S = 30  # before retrying when no other scout is left to wait for
+
+
+async def _schedule_scouts(ctx, tasks: dict, plan, profile, skills) -> tuple[dict, dict]:
+    """Run the scouts, at most ``claude_max_parallel`` at once.
+
+    A scout that fails for a transient reason (memory, rate limit, crash) is not
+    retried right away: it waits until another scout has ended, so it restarts with
+    one process fewer running. Every such failure also lowers the number of scouts
+    running at once for the rest of the research. Non-transient failures (login,
+    turn limit, …) are final.
+    """
+    limit = max(1, ctx.settings.claude_max_parallel)
+    pending = list(tasks)
+    waiting: list[str] = []  # failed, retried once another scout has ended
+    attempts = {tid: 0 for tid in tasks}
+    running: dict[asyncio.Task, str] = {}
+    results, failures = {}, {}
+    try:
+        while pending or running or waiting:
+            while pending and len(running) < limit:
+                tid = pending.pop(0)
+                attempts[tid] += 1
+                running[asyncio.ensure_future(_run_scout(ctx, tid, tasks[tid], plan, profile, skills))] = tid
+            if not running:  # only failed scouts are left and nobody else is running
+                await asyncio.sleep(ALONE_PAUSE_S)
+                pending, waiting = waiting, []
+                continue
+            done, _ = await asyncio.wait(running, return_when=asyncio.FIRST_COMPLETED)
+            were_running = len(running)
+            pending.extend(waiting)  # a scout has ended: the waiting ones may start again
+            waiting = []
+            for future in done:
+                tid = running.pop(future)
+                title = tasks[tid].title
+                exc = future.exception()
+                if exc is None:
+                    results[tid] = future.result()
+                elif getattr(exc, "transient", False) and attempts[tid] <= SCOUT_RETRIES:
+                    limit = max(1, min(limit, were_running) - 1)
+                    waiting.append(tid)
+                    ctx.log.write("scout_retry", stage=NAME, angle=title, attempt=attempts[tid], parallel=limit,
+                                  error=log_text(exc))
+                else:
+                    failures[title] = exc
+                    ctx.log.write("scout_failed", stage=NAME, angle=title, error=log_text(exc))
+    finally:
+        for future in running:
+            future.cancel()
+    return results, failures
+
+
 async def run_scouts(ctx, plan: ResearchPlan, profile: DepthProfile, skills: list[str]) -> list[RankedCandidate]:
     ids = task_ids(plan)
     await ctx.notify(NAME, f"{len(ids)} Scout(s) suchen nach Quellen: " + ", ".join(t.title for t in plan.tasks))
-    slots = asyncio.Semaphore(max(1, ctx.settings.claude_max_parallel))
-
-    async def limited(tid, task):
-        async with slots:
-            return await _run_scout(ctx, tid, task, plan, profile, skills)
-
-    outcomes = await asyncio.gather(*(limited(tid, task) for tid, task in zip(ids, plan.tasks)),
-                                    return_exceptions=True)
-    results, failures = {}, {}
-    for tid, task, outcome in zip(ids, plan.tasks, outcomes):
-        if isinstance(outcome, BaseException):
-            failures[task.title] = outcome
-            ctx.log.write("scout_failed", stage=NAME, angle=task.title, error=log_text(outcome))
-        else:
-            results[tid] = outcome
+    results, failures = await _schedule_scouts(ctx, dict(zip(ids, plan.tasks)), plan, profile, skills)
     if not results:
         raise scouts_failed(failures)
     ranked = merge_candidates(results)
