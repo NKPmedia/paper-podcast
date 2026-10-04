@@ -10,6 +10,8 @@ from __future__ import annotations
 import traceback
 
 DETAILS_MARKER = "\n\nDetails:\n"
+STEP_NAMES = {"research": "Recherche", "script": "Skript", "handout": "Handout", "tts": "Sprachausgabe",
+              "audio": "Audio", "memory": "Verknüpfung"}
 
 
 class PodcastError(RuntimeError):
@@ -36,8 +38,10 @@ def format_error(exc: BaseException, stage_label: str = "") -> str:
     if isinstance(exc, PodcastError):
         message, details = exc.message, exc.details
     else:  # a bug or something we did not anticipate
-        where = f" in step '{stage_label}'" if stage_label else ""
-        message = f"Unexpected error{where}: {type(exc).__name__}: {exc}"
+        where = f" im Schritt „{STEP_NAMES.get(stage_label, stage_label)}“" if stage_label else ""
+        message = (f"Unerwarteter Fehler{where} ({type(exc).__name__}: {str(exc)[:200]}). Das ist vermutlich ein "
+                   "Programmfehler und kein Problem deiner Einstellungen. „Fortsetzen“ kann trotzdem helfen; sonst "
+                   "die technischen Details unten als Fehlerbericht weitergeben.")
         details = ""
     trace = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)).strip()
     parts = [p.strip() for p in (details, trace) if p and p.strip()]

@@ -74,6 +74,22 @@ def validate(script: Script, target_words: int, handout: bool = False,
     return problems
 
 
+def problems_in_german(problems: list[str]) -> str:
+    """Short German summary of the validation problems (they are written in English for Claude)."""
+    found = []
+    for problem in problems:
+        if m := re.search(r"too (short|long): (\d+) words, the target is about (\d+)", problem):
+            found.append(f"zu {'kurz' if m.group(1) == 'short' else 'lang'} ({m.group(2)} statt etwa {m.group(3)} Wörter)")
+    checks = (("formula", "geschriebene Formeln im gesprochenen Text"), ("handout", "Verweise auf ein Handout, das es "
+              "nicht gibt"), ("too long (", "zu lange Redebeiträge"), ("is empty", "leere Redebeiträge"),
+              ("Both speakers", "nur eine Stimme spricht"), ("two chapters", "weniger als zwei Kapitel"),
+              ("unknown episodes", "Verweise auf Folgen, die es nicht gibt"), ("schema", "Antwort im falschen Format"))
+    for needle, text in checks:
+        if any(needle in p for p in problems) and text not in found:
+            found.append(text)
+    return ", ".join(found) or f"{len(problems)} Problem(e)"
+
+
 async def run(ctx) -> None:
     opts = ctx.request.options
     skills = ctx.skills.stage_skills(NAME, opts.extra_skills)
@@ -112,6 +128,7 @@ async def run(ctx) -> None:
                 max_turns=ctx.settings.claude_max_turns_script,
                 model=ctx.settings.script_model,
                 resume=session_id,
+                label="Skript" if attempt == 1 else f"Skript (Überarbeitung {attempt - 1})",
             )
         )
         session_id = result.session_id
@@ -136,7 +153,8 @@ async def run(ctx) -> None:
             + "\n\nPlease fix this and return the complete, revised script."
         )
     raise PodcastError(
-        f"Claude hat nach {MAX_ATTEMPTS} Versuchen kein gültiges Skript geliefert. Mit „Fortsetzen“ erneut "
-        "versuchen; hilft das nicht, die Länge ändern oder die Sprechregeln unter Prompts prüfen.",
+        f"Claude hat nach {MAX_ATTEMPTS} Versuchen kein brauchbares Skript geliefert. Zuletzt noch: "
+        f"{problems_in_german(problems)}. Mit „Fortsetzen“ erneut versuchen; bleibt die Länge das Problem, die "
+        "Episode mit einer anderen Länge neu anlegen, sonst die Sprechregeln unter Prompts prüfen.",
         "Remaining problems:\n- " + "\n- ".join(problems),
     )

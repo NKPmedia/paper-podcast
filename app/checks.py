@@ -117,9 +117,9 @@ class KeyChecker:
         with tempfile.TemporaryDirectory() as tmp:
             try:
                 await self.claude.run(ClaudeCall(prompt="Reply with the single word OK.", cwd=Path(tmp), tools=[],
-                                                 max_turns=1, model=model))
+                                                 max_turns=1, model=model, retry=False))
             except PodcastError as exc:
-                return CheckResult("error", exc.message)
+                return CheckResult("error", getattr(exc, "cause", exc.message))
         return CheckResult("ok", f"Token gültig – Claude antwortet (getestet mit Modell „{model}“).")
 
     async def check_gemini(self) -> CheckResult:

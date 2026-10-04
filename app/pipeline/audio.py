@@ -34,7 +34,11 @@ def ffmpeg(*args: str) -> subprocess.CompletedProcess:
     cmd = ["ffmpeg", "-hide_banner", "-nostdin", "-y", *args]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
-        raise PodcastError("Das Audio konnte nicht zusammengesetzt werden (ffmpeg-Fehler).",
+        last = next((line.strip() for line in reversed(proc.stderr.splitlines()) if line.strip()), "")
+        hint = ("Der Datenträger ist voll – Platz schaffen (z.B. alte Episoden löschen), dann „Fortsetzen“."
+                if "no space left" in proc.stderr.lower() else
+                "Oft ist ein Clip der Sprachausgabe beschädigt: „Neu erzeugen ab Sprachausgabe“ behebt das meist.")
+        raise PodcastError(f"Das Audio konnte nicht zusammengesetzt werden: ffmpeg meldet „{last[:200]}“. {hint}",
                            f"ffmpeg failed: {' '.join(cmd)}\n{proc.stderr[-2000:]}")
     return proc
 

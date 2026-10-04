@@ -17,6 +17,7 @@ from fastapi import FastAPI, Form, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError
 from jinja2 import Environment, StrictUndefined, TemplateSyntaxError, UndefinedError
 from markdown_it import MarkdownIt
 from starlette.middleware.sessions import SessionMiddleware
@@ -497,8 +498,19 @@ def create_app(
             job = service.submit(EpisodeRequest(topic=topic, options=options), origin="web")
             if series_id:  # before the next await, so the worker sees it from the start
                 series_store.add_episode(series_id, job.id)
-        except (ValueError, KeyError, TemplateSyntaxError, UndefinedError) as exc:
-            flash(request, f"Konnte die Episode nicht anlegen: {exc}", "error")
+        except (TemplateSyntaxError, UndefinedError) as exc:
+            flash(request, "Konnte die Episode nicht anlegen: Ein Prompt-Zusatz (unter „Erweitert“) oder ein "
+                  f"gespeicherter Prompt-Block enthält ungültige Vorlagen-Syntax mit {{{{ … }}}} oder {{% … %}}: {exc}. "
+                  "Geschweifte Klammern als Text bitte vermeiden oder unter Prompts korrigieren.", "error")
+            return redirect("/")
+        except (ValueError, KeyError) as exc:
+            text = str(exc).strip("'\"")
+            if isinstance(exc, ValidationError) or "is not a valid" in text:
+                text = ("Eine Auswahl im Formular ist ungültig (Länge, Tiefe, Sprache oder Vorwissen). Bitte die Seite "
+                        "neu laden und erneut versuchen.")
+            elif text.startswith("Unknown prompt block"):
+                text = "Ein Prompt-Zusatz gehört zu einem Block, den es nicht mehr gibt. Bitte die Seite neu laden."
+            flash(request, f"Konnte die Episode nicht anlegen: {text}", "error")
             return redirect("/")
         waiting = sum(1 for j in store.list(200) if j.active and j.id != job.id)
         flash(request, f"Episode angelegt – {waiting} Job(s) sind vor ihr in der Warteschlange." if waiting

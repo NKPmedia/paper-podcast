@@ -143,7 +143,7 @@ async def make_plan(ctx, profile: DepthProfile) -> ResearchPlan:
     model = ctx.settings.research_main_model
     result = await ctx.claude.run(ClaudeCall(
         prompt=prompt, cwd=ctx.job_dir, tools=[], system_append=ctx.blocks["system"],
-        output_schema=json_schema(ResearchPlan), max_turns=3, model=model,
+        output_schema=json_schema(ResearchPlan), max_turns=3, model=model, label="Rechercheplan",
     ))
     plan = ResearchPlan.model_validate(result.structured)
     problems = _plan_problems(plan, profile)
@@ -154,6 +154,7 @@ async def make_plan(ctx, profile: DepthProfile) -> ResearchPlan:
                    + "\n\nReturn the complete plan again.",
             cwd=ctx.job_dir, tools=[], system_append=ctx.blocks["system"],
             output_schema=json_schema(ResearchPlan), max_turns=3, model=model, resume=result.session_id,
+            label="Rechercheplan (Nachbesserung)",
         ))
         plan = ResearchPlan.model_validate(result.structured)
     if not plan.tasks:
@@ -288,6 +289,7 @@ async def _run_scout(ctx, task_id: str, task, plan: ResearchPlan, profile: Depth
     result = await ctx.claude.run(ClaudeCall(
         prompt=prompt, cwd=ctx.job_dir, tools=SCOUT_TOOLS, skills=skills, system_append=ctx.blocks["system"],
         output_schema=json_schema(ScoutResult), max_turns=profile.scout_turns, model=model,
+        label=f"Scout „{task.title}“",
     ))
     candidates = ScoutResult.model_validate(result.structured).candidates
     _log_claude(ctx, f"scout:{task.title}", model, result, candidates=len(candidates))
@@ -327,13 +329,16 @@ async def run_scouts(ctx, plan: ResearchPlan, profile: DepthProfile, skills: lis
 
 def scouts_failed(failures: dict[str, BaseException]) -> PodcastError:
     """One clear message for 'every scout failed', naming the cause (usually the same for all)."""
-    reasons = {str(exc) for exc in failures.values()}
+    causes = {angle: getattr(exc, "cause", None) or (str(exc) if isinstance(exc, PodcastError)
+                                                     else f"{type(exc).__name__}: {exc}")
+              for angle, exc in failures.items()}
     count = len(failures)
-    if len(reasons) == 1:
-        message = f"Die Recherche ist fehlgeschlagen ({'der Scout' if count == 1 else f'alle {count} Scouts'}). " + reasons.pop()
+    who = "der Scout ist abgebrochen" if count == 1 else f"alle {count} Scouts sind abgebrochen"
+    if len(set(causes.values())) == 1:
+        message = f"Die Recherche ist fehlgeschlagen, {who}, es gibt also keine Quellen. Ursache: " + causes.popitem()[1]
     else:
-        causes = " / ".join(sorted(reason[:160] for reason in reasons)[:3])
-        message = f"Die Recherche ist fehlgeschlagen: Alle {count} Scouts brachen ab, aus verschiedenen Gründen: {causes}"
+        listed = " · ".join(f"„{angle}“: {cause[:160]}" for angle, cause in list(causes.items())[:3])
+        message = f"Die Recherche ist fehlgeschlagen, {who}, aus verschiedenen Gründen: {listed}"
     details = "\n\n".join(
         f"Scout '{angle}': {type(exc).__name__}: {exc}" + (f"\n{exc.details}" if isinstance(exc, PodcastError) and exc.details else "")
         for angle, exc in failures.items()
@@ -354,7 +359,7 @@ async def select_papers(ctx, candidates: list[RankedCandidate], plan: ResearchPl
     model = ctx.settings.research_main_model
     result = await ctx.claude.run(ClaudeCall(
         prompt=prompt, cwd=ctx.job_dir, tools=[], system_append=ctx.blocks["system"],
-        output_schema=json_schema(Selection), max_turns=3, model=model,
+        output_schema=json_schema(Selection), max_turns=3, model=model, label="Auswahl der Paper",
     ))
     selection = Selection.model_validate(result.structured)
     known = {c.id for c in candidates}
@@ -456,6 +461,7 @@ async def read_and_write_notes(ctx, candidates, selection, plan, reading, profil
     result = await ctx.claude.run(ClaudeCall(
         prompt=prompt, cwd=ctx.job_dir, tools=READ_TOOLS, skills=skills, system_append=ctx.blocks["system"],
         output_schema=json_schema(ResearchResult), max_turns=profile.main_turns, model=model,
+        label="Paper lesen und Notizen schreiben",
     ))
     research = ResearchResult.model_validate(result.structured)
     _log_claude(ctx, "read", model, result, sources=len(research.sources))

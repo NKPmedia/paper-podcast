@@ -306,7 +306,8 @@ async def test_scout_failure_names_the_cause(settings):
 
     auth = claude_error("ProcessError: exit code 1", ["Invalid API key · Please run /login"])
     error = scouts_failed({"background": auth, "core": auth, "critique": auth})
-    assert error.message.startswith("Die Recherche ist fehlgeschlagen (alle 3 Scouts). Claude konnte sich nicht anmelden")
+    assert error.message.startswith("Die Recherche ist fehlgeschlagen, alle 3 Scouts sind abgebrochen, es gibt also "
+                                    "keine Quellen. Ursache: Claude konnte sich nicht anmelden")
     assert "Scout 'core'" in error.details and "Invalid API key" in error.details
 
     mixed = scouts_failed({"core": auth, "critique": TimeoutError("slow")})
@@ -322,7 +323,7 @@ def test_claude_error_classification():
     assert "Netzwerk" in claude_error("Error: getaddrinfo ENOTFOUND api.anthropic.com").message
     assert "Rundenlimit" in claude_error("Claude failed: subtype=error_max_turns").message
     generic = claude_error("Something odd about arXiv 2401.00001")  # no false 401 match
-    assert generic.message == "Claude ist mit einem Fehler abgebrochen." and "2401.00001" in generic.details
+    assert generic.message.startswith("Claude Code meldet „Something odd") and "2401.00001" in generic.details
 
 
 async def test_title_is_set_as_soon_as_research_names_it(settings):

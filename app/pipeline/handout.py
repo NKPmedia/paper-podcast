@@ -58,7 +58,7 @@ async def run(ctx) -> None:
         result = await ctx.claude.run(ClaudeCall(
             prompt=prompt, cwd=ctx.job_dir, tools=TOOLS, skills=skills, system_append=ctx.blocks["system"],
             output_schema=json_schema(schema), max_turns=max_turns or ctx.settings.claude_max_turns_script,
-            model=model, resume=resume,
+            model=model, resume=resume, label="Handout" if step == "write" else f"Handout ({step})",
         ))
         ctx.log_claude(NAME, model, result, step=step)
         return result

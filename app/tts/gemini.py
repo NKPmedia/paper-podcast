@@ -18,6 +18,7 @@ from pathlib import Path
 import httpx
 
 from app.config import Settings
+from app.errors import PodcastError
 from app.models import Script
 from app.tts import Clip
 from app.tts.edge import clean_text
@@ -29,7 +30,20 @@ MAX_CHUNK_CHARS = 3500
 RETRIES = 3
 
 
-class QuotaExceeded(RuntimeError):
+def gemini_reason(status: int | None, error: str) -> str:
+    text = error.lower()
+    if status is None:
+        return "Der Server erreicht die Gemini-API nicht (Netzwerkproblem). Prüfe die Internetverbindung des Servers."
+    if status in (400, 401, 403) and ("api key" in text or "api_key" in text or "permission" in text or status != 400):
+        return "Der Gemini-Key ist ungültig oder hat keinen Zugriff. Prüfe ihn unter Einstellungen → Stimmen."
+    if status == 404 or "model" in text and status == 400:
+        return "Das eingestellte Gemini-TTS-Modell gibt es nicht. Prüfe den Modellnamen unter Einstellungen → Stimmen."
+    if status >= 500:
+        return "Die Gemini-Server sind gerade gestört. Später mit „Fortsetzen“ erneut versuchen."
+    return f"Gemini meldet HTTP {status}. Mit „Fortsetzen“ erneut versuchen; Einzelheiten unter „Technische Details“."
+
+
+class QuotaExceeded(PodcastError):
     pass
 
 
@@ -94,21 +108,30 @@ class GeminiTTS:
             try:
                 response = await client.post(url, json=body, headers={"x-goog-api-key": self.settings.gemini_api_key})
             except httpx.HTTPError as exc:
-                error = f"network error: {exc}"
+                error = f"network error: {type(exc).__name__}: {exc}"
+                status = None
             else:
                 if response.status_code == 429 or "RESOURCE_EXHAUSTED" in response.text[:2000]:
-                    raise QuotaExceeded(f"Gemini-Kontingent erschöpft ({response.status_code})")
+                    raise QuotaExceeded(
+                        "Das Gemini-Kontingent ist erschöpft (das kostenlose Kontingent reicht für wenige Episoden "
+                        "pro Tag). Morgen mit „Fortsetzen“ weitermachen oder unter Einstellungen → Stimmen auf Edge "
+                        "umstellen.", f"HTTP {response.status_code}: {response.text[:300]}")
                 if response.status_code == 200:
                     part = response.json()["candidates"][0]["content"]["parts"][0]["inlineData"]
                     rate = int(re.search(r"rate=(\d+)", part.get("mimeType", "")).group(1)) \
                         if "rate=" in part.get("mimeType", "") else 24000
                     return base64.b64decode(part["data"]), rate
                 error = f"HTTP {response.status_code}: {response.text[:300]}"
+                status = response.status_code
+                if status in (400, 401, 403, 404):
+                    break  # a wrong key or model does not get better by retrying
             if attempt == RETRIES:
-                raise RuntimeError(f"Gemini TTS failed: {error}")
+                break
             log.warning("Gemini TTS attempt %d failed (%s), retrying", attempt, error)
             await asyncio.sleep(2**attempt)
-        raise AssertionError("unreachable")
+        raise PodcastError(f"Die Sprachausgabe mit Gemini ist fehlgeschlagen: {gemini_reason(status, error)}",
+                           f"Gemini TTS failed ({self.settings.gemini_tts_model}): {error}")
+
 
     async def synthesize(self, script: Script, out_dir: Path) -> list[Clip]:
         out_dir.mkdir(parents=True, exist_ok=True)

@@ -98,6 +98,7 @@ async def run(ctx, notify_stage: str) -> None:
         result = await ctx.claude.run(ClaudeCall(
             prompt=prompt, cwd=ctx.job_dir, tools=TOOLS, system_append=ctx.blocks["system"],
             output_schema=json_schema(ClarificationRequest), max_turns=MAX_TURNS, model=model,
+            label="Rückfragen prüfen",
         ))
         data = _clean(ClarificationRequest.model_validate(result.structured))
         ctx.log_claude(notify_stage, model, result, step="clarify", questions=len(data["questions"]))

@@ -25,46 +25,100 @@ log = logging.getLogger(__name__)
 class ClaudeError(PodcastError):
     def __init__(self, message: str, details: str = "", transient: bool = False):
         super().__init__(message, details)
+        self.cause = message  # the reason without the name of the call (to group equal failures)
         self.transient = transient  # worth retrying after a pause
 
+    def for_call(self, label: str, attempts: int = 1) -> "ClaudeError":
+        """Name the failed call and say that it was already retried."""
+        message = f"{label}: {self.cause}" if label else self.cause
+        if attempts > 1:
+            message += f" (Automatisch {attempts}-mal versucht.)"
+        self.message = message
+        self.args = (message,)
+        return self
 
-GENERIC = "Claude ist mit einem Fehler abgebrochen."
+
 # (regex over the raw error and Claude's stderr, summary shown to the user, transient?)
 CAUSES = (
     (r"invalid api key|invalid bearer|authentication|unauthorized|\b401\b|oauth token|not logged in|/login"
      r"|token (has )?expired",
-     "Claude konnte sich nicht anmelden: Der Claude-Token ist ungültig oder abgelaufen. Erzeuge einen neuen mit "
-     "`claude setup-token` und trag ihn unter Einstellungen → Claude ein.", False),
+     "Claude konnte sich nicht anmelden: Der Claude-Token ist ungültig oder abgelaufen. Erzeuge auf deinem Rechner "
+     "mit `claude setup-token` einen neuen und trag ihn unter Einstellungen → Claude ein.", False),
     (r"usage limit|quota",
-     "Das Claude-Nutzungslimit ist erreicht. Später mit „Fortsetzen“ weitermachen; fertige Schritte bleiben erhalten.",
-     False),
+     "Das Claude-Nutzungslimit deines Abos ist erreicht.{reset} Danach mit „Fortsetzen“ weitermachen; fertige "
+     "Schritte bleiben erhalten.", False),
     (r"rate.?limit|\b429\b|too many requests",
-     "Claude hat zu viele Anfragen auf einmal abgelehnt (Ratenlimit). Später mit „Fortsetzen“ weitermachen; "
-     "unter Einstellungen → Claude kannst du weniger parallele Aufrufe einstellen.", True),
+     "Claude hat zu viele Anfragen kurz hintereinander abgelehnt (Ratenlimit). In ein paar Minuten mit „Fortsetzen“ "
+     "weitermachen. Passiert das öfter, unter Einstellungen → Claude weniger parallele Aufrufe einstellen.", True),
     (r"overloaded|\b529\b|internal server error|\b50[023]\b",
-     "Die Claude-Server sind gerade überlastet oder gestört. Bitte später mit „Fortsetzen“ erneut versuchen.", True),
+     "Die Claude-Server sind gerade überlastet oder gestört (das liegt bei Anthropic, nicht an deinem Server). "
+     "In einigen Minuten mit „Fortsetzen“ erneut versuchen; status.anthropic.com zeigt Störungen.", True),
     (r"enotfound|econnrefused|econnreset|etimedout|getaddrinfo|network error|connection error|unable to connect"
      r"|fetch failed",
-     "Claude ist vom Server aus nicht erreichbar (Netzwerkproblem). Prüfe die Internetverbindung des Servers.", True),
+     "Dein Server erreicht Claude nicht (Netzwerkproblem: Verbindung abgelehnt, abgebrochen oder DNS-Fehler). Prüfe "
+     "die Internetverbindung und DNS des Servers bzw. des Docker-Netzwerks, dann „Fortsetzen“.", True),
     (r"exit code:? ?(-9|137)\b|sigkill|out of memory|enomem|heap out of memory|\bkilled\b",
-     "Claude Code wurde beendet, vermutlich weil der Arbeitsspeicher nicht reichte. Unter Einstellungen → Claude "
-     "weniger parallele Aufrufe einstellen oder dem Server mehr RAM geben, dann mit „Fortsetzen“ weitermachen.", True),
+     "Claude Code wurde vom System beendet, vermutlich weil der Arbeitsspeicher nicht reichte. Unter Einstellungen → "
+     "Claude weniger parallele Aufrufe einstellen (bei 4 GB RAM höchstens 3) oder dem Server mehr RAM geben, dann "
+     "„Fortsetzen“.", True),
     (r"model not found|invalid model|not_found_error",
-     "Das eingestellte Claude-Modell ist nicht verfügbar. Prüfe die Modellnamen unter Einstellungen → Claude.", False),
+     "Das eingestellte Claude-Modell gibt es nicht oder dein Abo hat keinen Zugriff darauf. Prüfe die Modellnamen "
+     "unter Einstellungen → Claude (z.B. haiku, sonnet, opus).", False),
     (r"error_max_turns|max_turns|maximum number of turns",
-     "Claude hat das Rundenlimit erreicht, bevor die Antwort fertig war. Mit „Fortsetzen“ erneut versuchen oder "
-     "unter Einstellungen → Claude mehr Runden erlauben.", False),
+     "Claude hat das Rundenlimit erreicht, bevor die Antwort fertig war (zu viele Such- oder Leseschritte). Mit "
+     "„Fortsetzen“ erneut versuchen; passiert das wieder, unter Einstellungen → Claude mehr Runden erlauben.", False),
     (r"clinotfound|claude code not found",
-     "Claude Code wurde im Container nicht gefunden. Das Image ist vermutlich beschädigt – bitte neu ziehen.", False),
+     "Claude Code wurde im Container nicht gefunden. Das Image ist vermutlich beschädigt – bitte neu ziehen "
+     "(`docker compose pull && docker compose up -d`).", False),
 )
+
+# What an unrecognized failure looks like, in words (first match wins).
+RAW_REASONS = (
+    (r"subtype=error_during_execution", "Claude Code ist während der Arbeit abgestürzt"),
+    (r"subtype=error_max_budget", "Claude Code hat sein Kostenlimit erreicht"),
+    (r"exit code:? ?(-?\d+)", "Claude Code wurde unerwartet beendet (Exit-Code {0})"),
+    (r"without a result message", "Claude Code hat sich ohne Ergebnis beendet"),
+    (r"timeout|timed out", "Claude Code hat zu lange nicht geantwortet"),
+)
+
+
+def _reset_time(text: str) -> str:
+    """' Wieder verfügbar ab 15:00 Uhr.' from 'usage limit reached|<epoch>', else ''."""
+    match = re.search(r"limit reached\|(\d{10})", text)
+    if not match:
+        return ""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    try:
+        when = datetime.fromtimestamp(int(match.group(1)), ZoneInfo(os.environ.get("TZ") or "Europe/Berlin"))
+    except (ValueError, KeyError, OSError):
+        return ""
+    return f" Wieder verfügbar ab {when:%H:%M} Uhr ({when:%d.%m.})."
+
+
+def _unknown(raw: str, haystack: str) -> str:
+    for pattern, text in RAW_REASONS:
+        match = re.search(pattern, haystack)
+        if match:
+            reason = text.format(*match.groups())
+            break
+    else:
+        first = next((line.strip() for line in raw.splitlines() if line.strip()), "unbekannter Fehler")
+        reason = f"Claude Code meldet „{first[:200]}“"
+    return (f"{reason}. Das ist meist ein einmaliger Aussetzer: mit „Fortsetzen“ erneut versuchen. Tritt es "
+            "wiederholt auf, stehen die Einzelheiten unter „Technische Details“.")
 
 
 def claude_error(raw: str, stderr: list[str] | None = None) -> ClaudeError:
     """Turn a raw Claude failure into a ClaudeError with a clear summary."""
     tail = "\n".join(stderr or [])[-3000:]
     haystack = f"{raw}\n{tail}".lower()
-    summary, transient = next(((text, retry) for pattern, text, retry in CAUSES if re.search(pattern, haystack)),
-                              (GENERIC, True))  # unknown crashes are usually one-offs: worth one more try
+    found = next(((text, retry) for pattern, text, retry in CAUSES if re.search(pattern, haystack)), None)
+    if found:
+        summary, transient = found[0].replace("{reset}", _reset_time(haystack)), found[1]
+    else:  # unknown crashes are usually one-offs: worth one more try
+        summary, transient = _unknown(raw, haystack), True
     details = raw + (f"\n\nClaude Code output (last lines):\n{tail}" if tail.strip() else "")
     return ClaudeError(summary, details, transient)
 
@@ -93,6 +147,8 @@ class ClaudeCall:
     max_turns: int | None = None
     model: str | None = None
     resume: str | None = None  # session id to continue
+    label: str = ""  # names the call in error messages, e.g. "Scout „Kritik“" or "Skript"
+    retry: bool = True  # retry transient failures after a pause (off for quick checks)
 
 
 @dataclass
@@ -126,10 +182,10 @@ class AgentSDKRunner:
             try:
                 return await self._run_once(call)
             except ClaudeError as exc:
-                if not exc.transient or attempt == len(self.RETRY_DELAYS):
+                if not (exc.transient and call.retry) or attempt == len(self.RETRY_DELAYS):
                     if notes:
                         exc.details = "\n\n".join([*notes, exc.details])
-                    raise
+                    raise exc.for_call(call.label, attempt + 1) from exc.__cause__
                 delay = self.RETRY_DELAYS[attempt]
                 notes.append(f"Attempt {attempt + 1} failed ({exc.message}), retried after {delay}s:\n{exc.details}")
                 log.warning("Claude call failed (%s), retrying in %ss", exc.message, delay)
@@ -197,8 +253,10 @@ class AgentSDKRunner:
                 list(stderr_lines),
             )
         if call.output_schema and result.structured_output is None:
-            raise ClaudeError("Claude hat keine strukturierte Antwort geliefert (das JSON-Format fehlte).",
-                              f"result text: {(result.result or '')[:2000]}")
+            raise ClaudeError(
+                "Claude hat geantwortet, aber nicht im verlangten JSON-Format, sodass der Server die Antwort nicht "
+                "auswerten kann. Mit „Fortsetzen“ erneut versuchen.",
+                f"result text: {(result.result or '')[:2000]}", transient=True)
         return ClaudeResult(
             structured=result.structured_output,
             text=result.result or "",

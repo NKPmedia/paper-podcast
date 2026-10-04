@@ -69,6 +69,7 @@ async def run(ctx) -> None:
         result = await ctx.claude.run(ClaudeCall(
             prompt=prompt, cwd=ctx.job_dir, tools=[], system_append=ctx.blocks["system"],
             output_schema=json_schema(EpisodeMemory), max_turns=MAX_TURNS, model=model,
+            label="Zusammenfassung und Folgevorschläge",
         ))
         memory = _clean(EpisodeMemory.model_validate(result.structured))
     except Exception as exc:  # the audio is done; never fail the episode here
