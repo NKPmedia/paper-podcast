@@ -67,6 +67,13 @@
   {% endif %}
 </section>
 
+{% if planned_series %}
+<section class="card">
+  <h2>Reihenplanung</h2>
+  <p>Diese Recherche ist die Grundlage der Reihe <a href="/series#{{ planned_series.id }}">{{ planned_series.title }}</a>.{% if job.status == "done" %} Den Plan, die geplanten Folgen und „Planung anpassen“ findest du dort.{% endif %}</p>
+</section>
+{% endif %}
+
 {% if episode and not job.active %}
 <section class="card">
   <audio controls preload="metadata" src="/episodes/{{ job.id }}/audio" id="player"></audio>

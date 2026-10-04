@@ -32,12 +32,13 @@ from app.errors import split_error
 from app.db import JobStore
 from app.jobs import ContextFactory, JobError, JobService, Worker
 from app.episode_log import call_tokens, fmt_tokens, read_log, timeline, token_totals
-from app.models import Audience, EpisodeOptions, EpisodeRequest, Language, Length, ResearchDepth
+from app.models import MAX_PLANNED, MIN_PLANNED, Audience, EpisodeOptions, EpisodeRequest, Language, Length, ResearchDepth
 from app.series import SeriesError, SeriesStore
 from app.tts import TTS_LABELS, resolve_tts
 from app.pipeline import clarify
 from app.pipeline.research import PROFILES, depth_hint
 from app import library
+from app.pipeline import PLAN_STAGE_NAMES, series_plan
 from app.pipeline import STAGE_ARTIFACTS, prompt_context, slugify, stages_for
 from app.prompts import BLOCK_DESCRIPTIONS, PromptStore
 from app.skills import STAGES as SKILL_STAGES
@@ -49,7 +50,7 @@ log = logging.getLogger(__name__)
 
 WEB_DIR = Path(__file__).resolve().parent
 STAGE_LABELS = {"research": "Recherche", "script": "Skript", "handout": "Handout", "tts": "Sprachausgabe", "audio": "Audio",
-                "memory": "Verknüpfung"}
+                "memory": "Verknüpfung", "series_plan": "Reihenplanung"}
 STATUS_LABELS = {
     "queued": "Wartet",
     "running": "Läuft",
@@ -515,7 +516,7 @@ def create_app(
                 text = "Ein Prompt-Zusatz gehört zu einem Block, den es nicht mehr gibt. Bitte die Seite neu laden."
             flash(request, f"Konnte die Episode nicht anlegen: {text}", "error")
             return redirect("/")
-        waiting = sum(1 for j in store.list(200) if j.active and j.id != job.id)
+        waiting = sum(1 for j in store.list(200, kind=None) if j.active and j.id != job.id)
         flash(request, f"Episode angelegt – {waiting} Job(s) sind vor ihr in der Warteschlange." if waiting
               else "Episode angelegt – sie startet jetzt.")
         return redirect(f"/episodes/{job.id}")
@@ -540,7 +541,8 @@ def create_app(
         if job is None:
             return render(request, "error.html", 404, message="Episode nicht gefunden.")
         request_data = _read_json(job_dir / "request.json", {})
-        job_stages = stages_for(request_data.get("request", {}).get("options", {}).get("handout", False))
+        job_stages = (PLAN_STAGE_NAMES if job.kind == "series_plan"
+                      else stages_for(request_data.get("request", {}).get("options", {}).get("handout", False)))
         research_md = job_dir / "research.md"
         log_entries = read_log(job_dir)
         return render(
@@ -576,6 +578,8 @@ def create_app(
             tts_used=(_read_json(job_dir / "episode.json") or {}).get("tts", ""),
             tts_planned=resolve_tts(settings, request_data.get("request", {}).get("options", {}).get("tts", "")),
             tts_labels=TTS_LABELS,
+            planned_series=next((s for s in series_store.all() if (s.get("plan") or {}).get("job") == job_id), None)
+            if job.kind == "series_plan" else None,
             series=(in_series := series_store.of_episode(job_id)),
             series_parts=[(i, store.get(i)) for i in in_series[0]["episodes"]] if in_series else [],
             all_series=series_store.all(),
@@ -703,7 +707,125 @@ def create_app(
     @app.get("/series")
     async def series_page(request: Request):
         require_user(request)
-        return render(request, "series.html", all_series=series_store.all(), jobs={j.id: j for j in store.list(1000)})
+        return render(request, "series.html", all_series=series_store.all(),
+                      jobs={j.id: j for j in store.list(1000, kind=None)},
+                      lengths=LENGTH_LABELS, languages=LANGUAGE_LABELS, audiences=AUDIENCE_LABELS,
+                      tts_default=resolve_tts(settings), gemini_ready=bool(settings.gemini_api_key),
+                      min_parts=MIN_PLANNED, max_parts=MAX_PLANNED)
+
+    def episode_options_from(form) -> dict:
+        """Options for the episodes of a planned series, from the planning form."""
+        return {
+            "length": Length(form.get("length", "mittel")).value,
+            "language": Language(form.get("language", settings.default_language)).value,
+            "audience": Audience(form.get("audience", "regular")).value,
+            "handout": form.get("handout") == "on",
+            "tts": str(form.get("tts", "")) if str(form.get("tts", "")) in TTS_LABELS else "",
+            "research_depth": ResearchDepth(form.get("depth", "medium")).value,
+        }
+
+    def parts_count(form) -> int:
+        try:
+            count = int(form.get("count") or 0)
+        except ValueError:
+            return 0
+        return count if MIN_PLANNED <= count <= MAX_PLANNED else 0
+
+    @app.post("/series/plan")
+    async def series_plan_new(request: Request):
+        """A new series, planned by Claude after a deep research."""
+        require_user(request)
+        form = await request.form()
+        check_csrf(request, form.get("csrf", ""))
+        goal = str(form.get("goal", "")).strip()
+        try:
+            options = episode_options_from(form)
+            if not goal:
+                raise JobError("Bitte beschreiben, worum es in der Reihe gehen soll.")
+            series = series_store.create(str(form.get("title", "")).strip() or goal[:60])
+            service.plan_series(series["id"], goal, parts_count(form), options)
+        except (JobError, SeriesError, ValueError) as exc:
+            flash(request, f"Konnte die Planung nicht starten: {exc}", "error")
+            return redirect("/series")
+        flash(request, "Planung gestartet: Claude recherchiert jetzt gründlich und plant dann die Reihe. Das dauert "
+                       "meist 15–30 Minuten; den Fortschritt siehst du hier.")
+        return redirect(f"/series#{series['id']}")
+
+    def plan_job_dir(series: dict):
+        job_id = (series.get("plan") or {}).get("job")
+        return (job_id, service.job_dir(job_id)) if job_id and store.get(job_id) else (None, None)
+
+    @app.post("/series/{series_id}/plan")
+    async def series_plan_action(request: Request, series_id: str):
+        """Plan the continuation of an existing series, or revise its plan with the listener's own words."""
+        require_user(request)
+        form = await request.form()
+        check_csrf(request, form.get("csrf", ""))
+        series = series_store.get(series_id)
+        if series is None:
+            flash(request, "Reihe nicht gefunden.", "error")
+            return redirect("/series")
+        job_id, _ = plan_job_dir(series)
+        try:
+            if form.get("action") == "revise":
+                if not job_id:
+                    raise JobError("Diese Reihe hat noch keine Planung, die angepasst werden könnte.")
+                service.revise_series_plan(job_id, str(form.get("instruction", "")))
+                flash(request, "Claude passt die Planung an; die Recherche wird wiederverwendet. Das dauert meist "
+                               "wenige Minuten.")
+            else:
+                goal = str(form.get("goal", "")).strip() or f"{series['title']}. {series.get('arc', '')}".strip()
+                service.plan_series(series_id, goal, parts_count(form), episode_options_from(form))
+                flash(request, "Planung gestartet: Claude recherchiert gründlich und plant, wie die Reihe weitergeht.")
+        except (JobError, SeriesError, ValueError) as exc:
+            flash(request, str(exc), "error")
+        return redirect(f"/series#{series_id}")
+
+    def create_planned(series: dict, index: int) -> str:
+        _, job_dir = plan_job_dir(series)
+        stored = series_plan.load_request(job_dir).get("episode_options", {}) if job_dir else {}
+        item = ((series.get("plan") or {}).get("items") or [])[index]
+        options = EpisodeOptions(
+            length=Length(stored.get("length", "mittel")), language=Language(stored.get("language", "de")),
+            research_depth=ResearchDepth(stored.get("research_depth", "medium")),
+            audience=Audience(stored.get("audience", "regular")), handout=bool(stored.get("handout")),
+            tts=stored.get("tts", ""), clarify=False,
+        )
+        job = service.submit(EpisodeRequest(topic=item["topic"], options=options), origin="web")
+        series_store.assign_item(series["id"], index, job.id)  # before the next await: the worker sees it
+        return job.id
+
+    @app.post("/series/{series_id}/plan/items")
+    async def series_plan_items(request: Request, series_id: str):
+        """Create one planned part (or all of them, in order), or remove one from the plan."""
+        require_user(request)
+        form = await request.form()
+        check_csrf(request, form.get("csrf", ""))
+        series = series_store.get(series_id)
+        items = ((series or {}).get("plan") or {}).get("items") or []
+        action = str(form.get("action", ""))
+        try:
+            index = int(form.get("index", -1))
+        except ValueError:
+            index = -1
+        try:
+            if series is None:
+                raise SeriesError("Reihe nicht gefunden.")
+            if action == "all":
+                created = [create_planned(series_store.get(series_id), 0) for _ in items]
+                flash(request, f"{len(created)} Folgen angelegt. Sie entstehen nacheinander, jede kennt die vorigen.")
+            elif not 0 <= index < len(items):
+                raise SeriesError("Diesen geplanten Teil gibt es nicht (mehr).")
+            elif action == "remove":
+                series_store.remove_item(series_id, index)
+                flash(request, f"„{items[index]['title']}“ aus der Planung entfernt.")
+            else:
+                job_id = create_planned(series, index)
+                flash(request, f"Folge „{items[index]['title']}“ angelegt.")
+                return redirect(f"/episodes/{job_id}")
+        except (JobError, SeriesError, ValueError) as exc:
+            flash(request, str(exc), "error")
+        return redirect(f"/series#{series_id}")
 
     @app.post("/series")
     async def series_create(request: Request):

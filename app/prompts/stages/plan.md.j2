@@ -34,7 +34,11 @@ The part right before this one covered:
 {{ series.previous.reference }}
 {% endif %}
 Plan the research so this part moves the series forward along its common thread, building on the earlier parts rather than repeating them.
-{% endif %}
+{% if series.planned %}
+In the series plan, this part's goal is: {{ series.planned.goal }}{% if series.planned.covers %} It covers: {{ series.planned.covers | join("; ") }}.{% endif %}{% if series.planned.sources %} Sources the plan names for it: {{ series.planned.sources | join("; ") }}.{% endif %}
+{% endif %}{% if series.upcoming %}
+Later planned parts cover: {% for ep in series.upcoming %}{{ ep.title }}{% if not loop.last %}; {% endif %}{% endfor %}. Do not research their content in depth.
+{% endif %}{% endif %}
 # General research guidance
 
 {{ blocks.research }}

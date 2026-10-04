@@ -11,7 +11,7 @@ import traceback
 
 DETAILS_MARKER = "\n\nDetails:\n"
 STEP_NAMES = {"research": "Recherche", "script": "Skript", "handout": "Handout", "tts": "Sprachausgabe",
-              "audio": "Audio", "memory": "Verknüpfung"}
+              "audio": "Audio", "memory": "Verknüpfung", "series_plan": "Reihenplanung"}
 
 
 class PodcastError(RuntimeError):

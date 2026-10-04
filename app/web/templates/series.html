@@ -1,30 +1,142 @@
 {% extends "base.html" %}
 {% block title %}Reihen · {{ settings.podcast_name }}{% endblock %}
+
+{% macro episode_fields() %}
+<div class="row">
+  <label>Länge je Folge
+    <select name="length">{% for value, label in lengths.items() %}<option value="{{ value }}" {% if value == "mittel" %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+  </label>
+  <label>Sprache
+    <select name="language">{% for value, label in languages.items() %}<option value="{{ value }}" {% if value == settings.default_language %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+  </label>
+  <label>Anzahl neuer Folgen
+    <select name="count"><option value="0">Claude entscheidet</option>{% for n in range(min_parts, max_parts + 1) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}</select>
+  </label>
+</div>
+<details>
+  <summary>Optionen für die einzelnen Folgen</summary>
+  <div class="row">
+    <label>Recherche je Folge
+      <select name="depth"><option value="quick">Schnell</option><option value="medium" selected>Normal</option><option value="deep">Gründlich</option></select>
+    </label>
+    <label>Sprachausgabe
+      <select name="tts">
+        <option value="edge" {% if tts_default == "edge" %}selected{% endif %}>Edge</option>
+        <option value="gemini" {% if tts_default == "gemini" %}selected{% endif %} {% if not gemini_ready %}disabled{% endif %}>Gemini</option>
+      </select>
+    </label>
+  </div>
+  <label>Vorwissen
+    <select name="audience">{% for value, label in audiences.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>
+  </label>
+  <label class="check"><input type="checkbox" name="handout"> Handout als PDF zu jeder Folge</label>
+</details>
+{% endmacro %}
+
 {% block content %}
 <section class="card">
   <h1>Reihen</h1>
-  <p>Eine Reihe bündelt Folgen in einer festen Reihenfolge. Jeder Teil kennt den roten Faden und die bisherigen Teile, beginnt mit einem kurzen „Was bisher geschah“ und endet mit einem Ausblick. Neue Teile entstehen über das Feld <b>Reihe</b> beim Erstellen einer Episode oder über „Folge erstellen“ bei einem Vorschlag.</p>
-  <form method="post" action="/series">
+  <p>Eine Reihe bündelt Folgen in einer festen Reihenfolge. Jeder Teil kennt den roten Faden und die bisherigen Teile, beginnt mit einem kurzen „Was bisher geschah“ und endet mit einem Ausblick.</p>
+  <h2>Reihe von Claude planen lassen</h2>
+  <p class="hint">Claude recherchiert das Gebiet gründlich (wie bei „Gründlich“, mit bis zu 7 gelesenen Papern), findet einen Lernpfad und plant die Folgen: Ziel, Inhalte, Quellen und worauf jede aufbaut. Du siehst den Plan, kannst ihn mit eigenen Worten anpassen und die Folgen einzeln oder alle auf einmal erzeugen. Die Planung dauert meist 15–30 Minuten.</p>
+  <form method="post" action="/series/plan">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <label>Titel <input name="title" required maxlength="120" placeholder="z.B. „Continual RL – vom Vergessen zum Weiterlernen“"></label>
-    <label>Roter Faden <span class="hint">optional</span>
-      <textarea name="arc" rows="2" maxlength="3000" placeholder="Worauf die Reihe hinausläuft und in welcher Reihenfolge die Themen aufeinander aufbauen"></textarea></label>
-    <button class="primary">Reihe anlegen</button>
+    <label>Worum soll es gehen?
+      <textarea name="goal" rows="3" required maxlength="3000" placeholder="z.B. „Continual Reinforcement Learning: von den Grundlagen über Plasticity Loss bis zum aktuellen Stand der Forschung“"></textarea>
+    </label>
+    <label>Titel <span class="hint">optional – sonst wählt Claude einen</span><input name="title" maxlength="120"></label>
+    {{ episode_fields() }}
+    <button class="primary">Planung starten</button>
   </form>
+  <details>
+    <summary>Leere Reihe ohne Planung anlegen</summary>
+    <form method="post" action="/series">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label>Titel <input name="title" required maxlength="120"></label>
+      <label>Roter Faden <span class="hint">optional</span><textarea name="arc" rows="2" maxlength="3000"></textarea></label>
+      <button>Reihe anlegen</button>
+    </form>
+  </details>
 </section>
 
 {% for s in all_series %}
-<section class="card">
+{% set plan = s.plan or {} %}
+{% set plan_job = jobs.get(plan.job) if plan.job else None %}
+<section class="card" id="{{ s.id }}">
   <h2>{{ s.title }}</h2>
   {% if s.arc %}<p class="muted">{{ s.arc }}</p>{% endif %}
-  {% if s.episodes %}
+
+  {% if plan_job and plan_job.status != "done" %}
+  <p class="plan-status {{ plan_job.status }}">
+    <span class="badge {{ plan_job.status }}">{{ status_labels[plan_job.status] }}</span>
+    {% if plan_job.active %}Planung: {{ plan_job.message or "wartet auf den Start" }}{% elif plan_job.status == "failed" %}Die Planung ist fehlgeschlagen: {{ (plan_job.error | split_error)[0] }}{% elif plan_job.status == "cancelled" %}Die Planung wurde abgebrochen.{% endif %}
+    · <a href="/episodes/{{ plan_job.id }}">Details{% if plan_job.status in ("failed", "cancelled") %} und Fortsetzen{% endif %}</a>
+  </p>
+  {% endif %}
+
+  <h3>Folgen</h3>
+  {% if s.episodes or plan.get("items") %}
   <ol class="series-parts">
-    {% for part_id in s.episodes %}{% set j = jobs.get(part_id) %}
-    <li><a href="/episodes/{{ part_id }}">{{ j.display_title if j else part_id }}</a>{% if j and j.status != "done" %} <span class="badge {{ j.status }}">{{ status_labels[j.status] }}</span>{% endif %}</li>
+    {% for part_id in s.episodes %}{% set j = jobs.get(part_id) %}{% set planned = (plan.get("assigned") or {}).get(part_id) %}
+    <li><a href="/episodes/{{ part_id }}">{{ j.display_title if j else part_id }}</a>{% if j and j.status != "done" %} <span class="badge {{ j.status }}">{{ status_labels[j.status] }}</span>{% endif %}
+      {% if planned %}<br><span class="muted">{{ planned.goal }}</span>{% endif %}</li>
+    {% endfor %}
+    {% for item in plan.get("items") or [] %}
+    <li class="planned"><span class="badge">geplant</span> <strong>{{ item.title }}</strong>
+      <br><span class="muted">{{ item.goal }}</span>
+      <details>
+        <summary>Mehr</summary>
+        {% if item.covers %}<p><strong>Inhalte</strong></p><ul>{% for c in item.covers %}<li>{{ c }}</li>{% endfor %}</ul>{% endif %}
+        {% if item.builds_on %}<p class="hint">Baut auf Teil {{ item.builds_on | join(", ") }} auf.</p>{% endif %}
+        {% if item.sources %}<p class="hint">Quellen: {{ item.sources | join(" · ") }}</p>{% endif %}
+        <p class="hint">Auftrag für die Recherche: {{ item.topic }}</p>
+      </details>
+      <div class="actions">
+        <form method="post" action="/series/{{ s.id }}/plan/items"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="index" value="{{ loop.index0 }}"><button name="action" value="create" class="primary">Folge erstellen</button></form>
+        <form method="post" action="/series/{{ s.id }}/plan/items"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="index" value="{{ loop.index0 }}"><button name="action" value="remove" data-confirm="„{{ item.title }}“ aus der Planung entfernen?">Entfernen</button></form>
+      </div></li>
     {% endfor %}
   </ol>
   {% else %}<p class="hint">Noch keine Folgen.</p>{% endif %}
-  <div class="actions"><a href="/?series={{ s.id }}">Teil {{ s.episodes | length + 1 }} erstellen …</a></div>
+
+  <div class="actions">
+    {% if plan.get("items") %}
+    <form method="post" action="/series/{{ s.id }}/plan/items"><input type="hidden" name="csrf" value="{{ csrf }}"><button name="action" value="all" data-confirm="Alle {{ plan["items"] | length }} geplanten Folgen anlegen? Sie entstehen nacheinander in dieser Reihenfolge.">Alle geplanten Folgen erstellen</button></form>
+    {% endif %}
+    <a href="/?series={{ s.id }}">Eigene Folge als Teil {{ s.episodes | length + 1 }} …</a>
+  </div>
+
+  {% if plan.get("rationale") %}
+  <details>
+    <summary>Warum diese Planung</summary>
+    <p>{{ plan.rationale }}</p>
+    {% if plan.changes %}<p><strong>Zuletzt geändert:</strong> {{ plan.changes }}</p>{% endif %}
+    {% if plan.history %}<p><strong>Deine Änderungswünsche</strong></p><ul>{% for h in plan.history %}<li>{{ h.instruction }}</li>{% endfor %}</ul>{% endif %}
+    {% if plan_job %}<p class="hint"><a href="/episodes/{{ plan_job.id }}">Recherche und Ablauf der Planung ansehen</a></p>{% endif %}
+  </details>
+  {% endif %}
+
+  {% if plan_job and not plan_job.active %}
+  <form method="post" action="/series/{{ s.id }}/plan" class="revise">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Planung anpassen <span class="hint">in deinen Worten – bestehende Folgen bleiben, die offenen werden neu geplant</span>
+      <textarea name="instruction" rows="2" maxlength="3000" placeholder="z.B. „Mehr zu Benchmarks, dafür weniger Grundlagen“, „Teil 3 aufteilen“ oder „Eine Folge zu Robotik-Anwendungen ergänzen“"></textarea>
+    </label>
+    <button name="action" value="revise">Planung anpassen</button>
+  </form>
+  {% elif not plan_job %}
+  <details>
+    <summary>Fortsetzung von Claude planen lassen</summary>
+    <form method="post" action="/series/{{ s.id }}/plan">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label>Wohin soll die Reihe führen? <span class="hint">optional – sonst aus Titel und rotem Faden</span>
+        <textarea name="goal" rows="2" maxlength="3000"></textarea></label>
+      {{ episode_fields() }}
+      <button>Planung starten</button>
+    </form>
+  </details>
+  {% endif %}
+
   <details>
     <summary>Bearbeiten</summary>
     <form method="post" action="/series/{{ s.id }}">
@@ -33,7 +145,7 @@
       <label>Roter Faden <textarea name="arc" rows="2" maxlength="3000">{{ s.arc }}</textarea></label>
       <div class="actions">
         <button class="primary">Speichern</button>
-        <button name="action" value="delete" class="danger" data-confirm="Reihe auflösen? Die Folgen bleiben erhalten.">Reihe auflösen</button>
+        <button name="action" value="delete" class="danger" data-confirm="Reihe auflösen? Die Folgen bleiben erhalten, die Planung geht verloren.">Reihe auflösen</button>
       </div>
     </form>
   </details>

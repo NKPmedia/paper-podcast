@@ -36,7 +36,8 @@ Keyboard = list[list[Button]]
 
 MAX_AUDIO_BYTES = 49 * 1024 * 1024  # Bot API upload limit is 50 MB
 STAGE_LABELS = {"research": "Recherche", "script": "Skript", "handout": "Handout", "tts": "Sprachausgabe",
-                "audio": "Audio", "memory": "Verknüpfung"}
+                "audio": "Audio", "memory": "Verknüpfung",
+                "series_plan": "Reihenplanung"}
 LENGTH_LABELS = {"kurz": "Kurz (~5 min)", "mittel": "Mittel (~12 min)", "lang": "Lang (~25 min)"}
 LENGTH_BUTTONS = {"kurz": "Kurz · 5 min", "mittel": "Mittel · 12 min", "lang": "Lang · 25 min"}
 DEPTH_LABELS = {"quick": "Schnell", "medium": "Normal", "deep": "Gründlich"}
@@ -336,7 +337,8 @@ class TelegramBot:
             lines.append(f"<i>{esc(job.topic[:200])}</i>")
         if job.status in ("queued", "running"):
             if job.status == "queued":
-                ahead = sum(1 for j in self.store.list(200) if j.status == "queued" and j.created_at < job.created_at)
+                ahead = sum(1 for j in self.store.list(200, kind=None)
+                            if j.status == "queued" and j.created_at < job.created_at)
                 running = self.worker.current_job_id()
                 position = f" (Position {ahead + 1})" if ahead or running else ""
                 lines.append(f"In der Warteschlange{position}")
@@ -391,7 +393,7 @@ class TelegramBot:
     # --- worker events (JobListener) ----------------------------------------------------
 
     async def job_event(self, job: Job, event: str) -> None:
-        if job is None:
+        if job is None or job.kind != "episode":  # series plans are followed on the web page
             return
         meta = self._meta(job.id)
         if (event == "started" and not meta["messages"] and job.origin != "telegram"

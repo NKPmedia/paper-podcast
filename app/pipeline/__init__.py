@@ -160,6 +160,14 @@ def _stages():
 
 
 STAGE_NAMES = ["research", "script", "handout", "tts", "audio", "memory"]
+# A series planning job: the same research, then the plan instead of an episode.
+PLAN_STAGE_NAMES = ["research", "series_plan"]
+
+
+def _plan_stages():
+    from app.pipeline import research, series_plan
+
+    return [research, series_plan]
 # The file whose existence marks a stage as finished.
 STAGE_ARTIFACTS = {
     "research": "research.md",
@@ -168,6 +176,7 @@ STAGE_ARTIFACTS = {
     "tts": "clips/manifest.json",
     "audio": "episode.mp3",
     "memory": "memory.json",
+    "series_plan": "series_plan.json",
 }
 
 
@@ -180,12 +189,15 @@ async def run_pipeline(
     ctx: EpisodeContext,
     progress: ProgressCallback | None = None,
     from_stage: str | None = None,
+    kind: str = "episode",
 ) -> Path:
-    if from_stage is not None and from_stage not in STAGE_NAMES:
-        raise ValueError(f"Unknown stage {from_stage!r}; choose from {STAGE_NAMES}")
+    stages = _plan_stages() if kind == "series_plan" else _stages()
+    names = [s.NAME for s in stages]
+    if from_stage is not None and from_stage not in names:
+        raise ValueError(f"Unknown stage {from_stage!r}; choose from {names}")
     ctx.progress = progress
     force = False
-    for stage in _stages():
+    for stage in stages:
         force = force or stage.NAME == from_stage
         if hasattr(stage, "enabled") and not stage.enabled(ctx):
             continue  # optional stage switched off for this episode

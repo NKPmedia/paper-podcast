@@ -220,3 +220,7 @@ form.questions legend { font-weight: 600; padding: 0 4px; }
 form.questions label.check { display: flex; align-items: baseline; margin: 6px 0; }
 dl.answers dt { font-weight: 600; margin-top: 8px; }
 dl.answers dd { margin: 2px 0 0 0; color: var(--muted); }
+.series-parts li.planned { margin-bottom: 12px; }
+.series-parts li.planned .actions { margin-top: 6px; }
+.plan-status { margin: 8px 0; }
+form.revise { margin-top: 12px; }

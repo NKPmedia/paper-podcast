@@ -8,6 +8,14 @@ Stored in ``<data>/series.json`` (the order of the parts lives only here)::
 An episode belongs to at most one series. The script of part n gets the arc, the
 mini summaries of the earlier parts and the reference summary of the part right
 before it, opens with a short "previously on" recap and ends with a teaser.
+
+A series can be planned by Claude (``app.pipeline.series_plan``). The plan lives in
+the series as ``plan``::
+
+    {"job": plan job id, "rationale": "...", "changes": "...", "updated_at": "...",
+     "items": [open planned parts, in order],
+     "assigned": {episode job id: the planned part it was created from},
+     "history": [{"at": "...", "instruction": "...", "changes": "..."}]}
 """
 
 from __future__ import annotations
@@ -135,6 +143,58 @@ class SeriesStore:
             parts.insert(j, parts.pop(i))
             self._save(data)
 
+    def _update(self, series_id: str, change) -> dict:
+        with _lock:
+            data = self._load()
+            series = next((s for s in data if s["id"] == series_id), None)
+            if series is None:
+                raise SeriesError("Reihe nicht gefunden.")
+            change(series)
+            self._save(data)
+            return series
+
+    def set_plan_job(self, series_id: str, job_id: str) -> None:
+        def change(series):
+            series.setdefault("plan", {"items": [], "assigned": {}, "history": []})["job"] = job_id
+        self._update(series_id, change)
+
+    def apply_plan(self, series_id: str, result: dict, instructions: list[str]) -> dict:
+        """Store a new plan: title and arc, and the open parts (replacing the previous open ones)."""
+        def change(series):
+            plan = series.setdefault("plan", {"items": [], "assigned": {}, "history": []})
+            series["title"] = " ".join(result["title"].split())[:120] or series["title"]
+            series["arc"] = result["arc"].strip()[:3000]
+            plan.update(items=result["episodes"], rationale=result["rationale"], changes=result.get("changes", ""),
+                        updated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+            for instruction in instructions:
+                plan.setdefault("history", []).append({"at": plan["updated_at"], "instruction": instruction,
+                                                       "changes": result.get("changes", "")})
+        return self._update(series_id, change)
+
+    def assign_item(self, series_id: str, index: int, job_id: str) -> dict:
+        """A planned part became an episode: it leaves the open items and joins the series."""
+        item = {}
+
+        def change(series):
+            plan = series.get("plan") or {}
+            items = plan.get("items") or []
+            if not 0 <= index < len(items):
+                raise SeriesError("Diesen geplanten Teil gibt es nicht (mehr).")
+            item.update(items.pop(index))
+            plan.setdefault("assigned", {})[job_id] = item
+            if job_id not in series["episodes"]:
+                series["episodes"].append(job_id)
+        self._update(series_id, change)
+        return item
+
+    def remove_item(self, series_id: str, index: int) -> None:
+        def change(series):
+            items = (series.get("plan") or {}).get("items") or []
+            if not 0 <= index < len(items):
+                raise SeriesError("Diesen geplanten Teil gibt es nicht (mehr).")
+            items.pop(index)
+        self._update(series_id, change)
+
     def delete(self, series_id: str) -> None:
         """Remove the grouping; the episodes stay."""
         with _lock:
@@ -148,7 +208,11 @@ def prompt_context(store: SeriesStore, episodes_dir: Path, job_id: str) -> dict 
         return None
     series, part = found
     earlier = [e for e in (library.episode(episodes_dir, i) for i in series["episodes"][:part - 1]) if e]
+    plan = series.get("plan") or {}
     return {
+        # From the series plan: what this part is meant to cover, and the parts planned after it.
+        "planned": (plan.get("assigned") or {}).get(job_id),
+        "upcoming": plan.get("items") or [],
         "id": series["id"],
         "title": series["title"],
         "arc": series["arc"],

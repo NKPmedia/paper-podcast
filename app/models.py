@@ -226,6 +226,36 @@ class EpisodeMemory(BaseModel):
                                        "follow-up episodes, the most rewarding first")
 
 
+# --- Series planning ------------------------------------------------------------
+
+MIN_PLANNED, MAX_PLANNED = 2, 12
+
+
+class PlannedEpisode(BaseModel):
+    title: str = Field(description="Working title in the episode language, at most 60 characters")
+    topic: str = Field(description="The request for this episode in the episode language, two to four sentences, "
+                                   "understandable on its own; name the core papers, methods or authors")
+    goal: str = Field(description="One or two sentences in the episode language: what the listener understands "
+                                  "after this part that they did not before")
+    covers: list[str] = Field(default_factory=list, description="3 to 6 key points this part covers, short, in the "
+                                                                "episode language")
+    builds_on: list[int] = Field(default_factory=list, description="Part numbers (1-based, counting the whole series "
+                                                                   "including existing parts) this part builds on")
+    sources: list[str] = Field(default_factory=list, description="Titles of the most important sources for this part, "
+                                                                 "from the research")
+
+
+class SeriesPlanResult(BaseModel):
+    title: str = Field(description="Title of the series in the episode language, at most 60 characters")
+    arc: str = Field(description="The common thread in the episode language, two to four sentences: where the series "
+                                 "starts, where it leads and why in this order")
+    episodes: list[PlannedEpisode] = Field(description="The planned parts that do not exist yet, in order")
+    rationale: str = Field(description="In the episode language, three to six sentences: why these parts and this "
+                                       "order, what was left out and why")
+    changes: str = Field(default="", description="Only when revising: in the episode language, what changed compared "
+                                                 "with the previous plan and why; otherwise empty")
+
+
 # --- Handout ------------------------------------------------------------------
 
 

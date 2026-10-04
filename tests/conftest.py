@@ -86,8 +86,26 @@ MEMORY = {
 }
 
 
+SERIES_PLAN = {
+    "title": "Batterien von morgen",
+    "arc": "Von den Grundlagen der Festkörperbatterie bis zu offenen Problemen.",
+    "rationale": "Erst Grundlagen, dann Probleme, dann Alternativen.",
+    "changes": "",
+    "episodes": [
+        {"title": "Wie Ionen wandern", "topic": "Grundlagen fester Elektrolyte (Muster 2024)",
+         "goal": "Verstehen, warum feste Elektrolyte sicherer sind.", "covers": ["Ionenleitung", "Sicherheit"],
+         "builds_on": [], "sources": ["Ein Paper"]},
+        {"title": "Das Dendriten-Problem", "topic": "Lithium-Dendriten in Festkörperbatterien",
+         "goal": "Verstehen, woran es noch hakt.", "covers": ["Dendriten"], "builds_on": [1, 7], "sources": []},
+        {"title": "Natrium statt Lithium", "topic": "Natrium-Ionen-Batterien als Alternative",
+         "goal": "Die Alternative einordnen.", "covers": ["Kosten"], "builds_on": [1], "sources": []},
+    ],
+}
+
+
 def default_responses(script: dict | None = None) -> dict:
     return {
+        "SeriesPlanResult": [SERIES_PLAN] * 3,
         "EpisodeMemory": [MEMORY] * 3,
         "ClarificationRequest": [{"needs_clarification": False, "reason": "Clear topic.", "questions": []}] * 5,
         "Handout": [HANDOUT],
