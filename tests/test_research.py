@@ -476,6 +476,8 @@ async def test_failed_scout_retries_after_another_scout_ended(settings, monkeypa
     (retry,) = [e for e in log if e["event"] == "scout_retry"]
     assert retry["angle"] == "Critique" and retry["parallel"] == 2 and "Arbeitsspeicher" in retry["error"]
     assert not [e for e in log if e["event"] == "scout_failed"]
+    # "Core work" (t1) finished last, yet results are merged in task order.
+    assert json.loads((job_dir / "candidates.json").read_text())[0]["found_by"] == ["t1", "t2", "t3"]
 
 
 async def test_scout_gives_up_after_its_retries(settings, monkeypatch):

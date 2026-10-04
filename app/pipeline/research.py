@@ -348,7 +348,10 @@ async def _schedule_scouts(ctx, tasks: dict, plan, profile, skills) -> tuple[dic
     finally:
         for future in running:
             future.cancel()
-    return results, failures
+    # In task order, not finishing order, so the merged shortlist does not depend on timing.
+    order = [tasks[tid].title for tid in tasks]
+    return ({tid: results[tid] for tid in tasks if tid in results},
+            {title: failures[title] for title in order if title in failures})
 
 
 async def run_scouts(ctx, plan: ResearchPlan, profile: DepthProfile, skills: list[str]) -> list[RankedCandidate]:
