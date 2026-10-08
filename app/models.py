@@ -39,6 +39,14 @@ class Audience(str, Enum):
     newcomer = "newcomer"  # explain everything, earlier episodes are only pointers
 
 
+class SourceFilter(str, Enum):
+    """Which sources the research may use."""
+
+    all = "all"
+    peer_reviewed = "peer_reviewed"  # published after peer review (journal or conference); no plain preprints
+    top = "top"  # a top venue of the field, or a top paper (very highly cited)
+
+
 class ResearchDepth(str, Enum):
     quick = "quick"
     medium = "medium"
@@ -63,6 +71,9 @@ class EpisodeOptions(BaseModel):
     # Speech engine for this episode: "edge" or "gemini"; "" = the default from the settings.
     # The other engine (if available) takes over when the chosen one fails.
     tts: Literal["", "edge", "gemini"] = ""
+    source_filter: SourceFilter = SourceFilter.all
+    # "overview": map a whole field, recent reviews and surveys first (used for series planning).
+    research_mode: Literal["episode", "overview"] = "episode"
 
 
 class EpisodeRequest(BaseModel):
@@ -123,6 +134,15 @@ class Candidate(BaseModel):
     score: float = Field(ge=0, le=10, description="Relevance for the episode, 0 to 10")
     reason: str = Field(description="One sentence on why the source is relevant")
     quote: str = Field(default="", description="Verbatim quote from the abstract")
+    venue: str = Field(default="", description="Journal or conference where it was published, from the API "
+                                               "metadata (e.g. 'NeurIPS 2023', 'Nature'); empty for a plain preprint")
+    peer_reviewed: Literal["yes", "no", "unknown"] = Field(
+        default="unknown", description="'yes' if published in a peer-reviewed journal or conference proceedings "
+        "(including accepted versions on arXiv), 'no' for preprints, blogs, news and reports")
+    top_tier: bool = Field(default=False, description="True if published at a top venue of its field, or a top paper "
+                                                      "by citations (see the paper-research skill, venues.md)")
+    is_review: bool = Field(default=False, description="True for review articles, surveys and tutorials")
+    citations: int | None = Field(default=None, description="Citation count from Semantic Scholar or OpenAlex")
 
 
 class ScoutResult(BaseModel):
@@ -224,6 +244,36 @@ class EpisodeMemory(BaseModel):
                                                                        "short noun phrases in English")
     follow_ups: list[FollowUp] = Field(default_factory=list, description=f"Up to {MAX_FOLLOW_UPS} suggested "
                                        "follow-up episodes, the most rewarding first")
+
+
+# --- Series planning ------------------------------------------------------------
+
+MIN_PLANNED, MAX_PLANNED = 2, 12
+
+
+class PlannedEpisode(BaseModel):
+    title: str = Field(description="Working title in the episode language, at most 60 characters")
+    topic: str = Field(description="The request for this episode in the episode language, two to four sentences, "
+                                   "understandable on its own; name the core papers, methods or authors")
+    goal: str = Field(description="One or two sentences in the episode language: what the listener understands "
+                                  "after this part that they did not before")
+    covers: list[str] = Field(default_factory=list, description="3 to 6 key points this part covers, short, in the "
+                                                                "episode language")
+    builds_on: list[int] = Field(default_factory=list, description="Part numbers (1-based, counting the whole series "
+                                                                   "including existing parts) this part builds on")
+    sources: list[str] = Field(default_factory=list, description="Titles of the most important sources for this part, "
+                                                                 "from the research")
+
+
+class SeriesPlanResult(BaseModel):
+    title: str = Field(description="Title of the series in the episode language, at most 60 characters")
+    arc: str = Field(description="The common thread in the episode language, two to four sentences: where the series "
+                                 "starts, where it leads and why in this order")
+    episodes: list[PlannedEpisode] = Field(description="The planned parts that do not exist yet, in order")
+    rationale: str = Field(description="In the episode language, three to six sentences: why these parts and this "
+                                       "order, what was left out and why")
+    changes: str = Field(default="", description="Only when revising: in the episode language, what changed compared "
+                                                 "with the previous plan and why; otherwise empty")
 
 
 # --- Handout ------------------------------------------------------------------

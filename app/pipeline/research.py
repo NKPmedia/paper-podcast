@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime
 import re
 import shutil
 from dataclasses import dataclass
@@ -36,6 +37,7 @@ from app.models import (
     ScoutTask,
     SelectedPaper,
     Selection,
+    SourceFilter,
     json_schema,
 )
 from app.papers import coverage_note, download_all, normalize_arxiv_id, to_index
@@ -121,7 +123,28 @@ def _common(ctx) -> dict:
         "topic": ctx.request.topic,
         "extra_instructions": ctx.request.options.extra_instructions,
         "clarifications": clarify.answers_text(ctx.job_dir),
+        "source_filter": ctx.request.options.source_filter.value,
+        "research_mode": ctx.request.options.research_mode,
+        "review_since": datetime.now().year - REVIEW_MAX_AGE,
     }
+
+
+REVIEW_MAX_AGE = 4  # years: older reviews miss the current state of fast-moving fields
+FILTER_LABELS = {"peer_reviewed": "peer-reviewed", "top": "von einer Top-Konferenz bzw. -Zeitschrift oder ein "
+                 "Top-Paper"}
+
+
+def passes_filter(c: Candidate, source_filter: SourceFilter) -> bool:
+    if source_filter == SourceFilter.peer_reviewed:
+        return c.peer_reviewed == "yes"
+    if source_filter == SourceFilter.top:
+        return c.top_tier
+    return True
+
+
+def recent_review(c: Candidate) -> bool:
+    year = int(c.year) if str(c.year).isdigit() else 0
+    return c.is_review and year >= datetime.now().year - REVIEW_MAX_AGE
 
 
 def load_plan(ctx) -> ResearchPlan | None:
@@ -161,6 +184,9 @@ async def make_plan(ctx, profile: DepthProfile) -> ResearchPlan:
         raise PodcastError("Claude hat keinen Rechercheplan erstellt. Mit „Fortsetzen“ erneut versuchen.",
                            f"plan without tasks: {result.structured}")
     titles = {t.title.lower() for t in plan.tasks}
+    if ctx.request.options.research_mode == "overview" and not any(
+            re.search(r"review|survey", f"{t.title} {t.objective}", re.IGNORECASE) for t in plan.tasks):
+        plan.tasks.insert(0, REVIEW_TASK)  # an overview always looks for recent reviews first
     for task in FALLBACK_TASKS:  # still too few: add standard perspectives
         if len(plan.tasks) >= profile.min_scouts:
             break
@@ -198,6 +224,15 @@ def _plan_problems(plan: ResearchPlan, profile: DepthProfile) -> list[str]:
                         f"{MAX_KEY_QUESTIONS}.")
     return problems
 
+
+REVIEW_TASK = ScoutTask(
+    title="Recent reviews and surveys",
+    objective="Find the most recent comprehensive review articles, surveys and tutorials of the field (last four "
+              "years first), which map its structure, main lines of work and open problems.",
+    search_hints="'<field> survey' and '<field> review' on Semantic Scholar (year=2022-) and OpenAlex "
+                 "(filter=type:review), sorted by citations; see reference/venues.md of the paper-research skill",
+    avoid="individual method papers",
+)
 
 # Standard perspectives, used only when the plan has fewer tasks than the depth requires.
 FALLBACK_TASKS = [
@@ -265,9 +300,15 @@ def merge_candidates(results: dict[str, list[Candidate]]) -> list[RankedCandidat
             if c.score > existing.score:
                 existing.score, existing.reason = c.score, c.reason
                 existing.quote = c.quote or existing.quote
-            for field in ("authors", "year", "doi", "url", "pdf_url"):
+            for field in ("authors", "year", "doi", "url", "pdf_url", "venue"):
                 if not getattr(existing, field) and getattr(c, field):
                     setattr(existing, field, getattr(c, field))
+            if c.peer_reviewed == "yes" or existing.peer_reviewed == "unknown":
+                existing.peer_reviewed = c.peer_reviewed if c.peer_reviewed != "unknown" else existing.peer_reviewed
+            existing.top_tier = existing.top_tier or c.top_tier
+            existing.is_review = existing.is_review or c.is_review
+            if c.citations is not None and (existing.citations is None or c.citations > existing.citations):
+                existing.citations = c.citations
             if not existing.arxiv_id:
                 existing.arxiv_id = _find_arxiv_id(c)
                 if existing.arxiv_id and not existing.id.startswith("arxiv:"):
@@ -392,8 +433,29 @@ def scouts_failed(failures: dict[str, BaseException]) -> PodcastError:
 # --- 3. Selection ---------------------------------------------------------------------
 
 
+def eligible_candidates(ctx, candidates: list[RankedCandidate]) -> list[RankedCandidate]:
+    """Only the sources the request allows; fails clearly when none are left."""
+    source_filter = ctx.request.options.source_filter
+    if source_filter == SourceFilter.all:
+        return candidates
+    eligible = [c for c in candidates if passes_filter(c, source_filter)]
+    ctx.log.write("source_filter", stage=NAME, filter=source_filter.value, kept=len(eligible),
+                  removed=[f"{c.title} ({c.venue or 'kein Venue'}, peer-reviewed: {c.peer_reviewed})"
+                           for c in candidates if c not in eligible][:20])
+    if not eligible:
+        raise PodcastError(
+            f"Keine der {len(candidates)} gefundenen Quellen ist {FILTER_LABELS[source_filter.value]}. Lockere die "
+            "Einschränkung der Quellen beim Erstellen der Episode, oder nenne im Thema konkrete Paper bzw. "
+            "Konferenzen. Welche Quellen aussortiert wurden, steht im Ablauf unter „Details“.",
+            "\n".join(f"{c.title}: venue={c.venue!r}, peer_reviewed={c.peer_reviewed}, top_tier={c.top_tier}"
+                      for c in candidates),
+        )
+    return eligible
+
+
 async def select_papers(ctx, candidates: list[RankedCandidate], plan: ResearchPlan | None,
                         profile: DepthProfile) -> Selection:
+    candidates = eligible_candidates(ctx, candidates)
     await ctx.notify(NAME, f"Auswahl der Paper aus {len(candidates)} Kandidaten")
     prompt = render_stage(
         "select", candidates=candidates, plan=plan, count=profile.shortlist, max_papers=profile.max_papers,
@@ -418,6 +480,12 @@ async def select_papers(ctx, candidates: list[RankedCandidate], plan: ResearchPl
             SelectedPaper(id=c.id, reason="Picked automatically by relevance score")
             for c in candidates[: profile.shortlist]
         ]
+    if ctx.request.options.research_mode == "overview":
+        reviews = [c for c in candidates if recent_review(c)]
+        chosen = {p.id for p in selection.selected}
+        if reviews and not any(c.id in chosen for c in reviews):  # an overview starts from a recent review
+            selection.selected = [SelectedPaper(id=reviews[0].id, reason="Most relevant recent review (overview)")] \
+                + selection.selected[: profile.shortlist - 1]
     _log_claude(ctx, "select", model, result, selected=len(selection.selected), dropped=dropped)
     return selection
 

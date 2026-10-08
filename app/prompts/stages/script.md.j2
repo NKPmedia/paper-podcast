@@ -71,7 +71,16 @@ What the part right before this one covered:
 - Keep this part a step along the common thread: it should feel like a chapter of the series, not a standalone episode that happens to share a topic.
 - **Close with a teaser**: one or two sentences on where the series goes next{% if series.planned_after %} (the next part is already planned, so keep it general){% endif %}.
 - List every earlier part the dialogue refers to in `episode_references`.
-{% endif %}{% if library %}
+{% if series.planned %}
+This part's role in the series plan. Goal: {{ series.planned.goal }}{% if series.planned.covers %}
+It covers:
+{% for c in series.planned.covers %}- {{ c }}
+{% endfor %}{% endif %}
+{% endif %}{% if series.upcoming %}
+Planned later parts (do not cover their content in depth here; a short pointer is enough, so they stay worth listening to):
+{% for ep in series.upcoming %}- {{ ep.title }}: {{ ep.goal }}
+{% endfor %}The closing teaser points to the next planned part, "{{ series.upcoming[0].title }}".
+{% endif %}{% endif %}{% if library %}
 # Earlier episodes of this podcast
 
 The podcast has a memory of its earlier episodes, one line each (newest first):

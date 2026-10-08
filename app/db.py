@@ -52,6 +52,7 @@ class Job:
     created_at: str
     started_at: str | None
     finished_at: str | None
+    kind: str = "episode"  # episode | series_plan
 
     @property
     def active(self) -> bool:
@@ -68,6 +69,9 @@ class JobStore:
         self.path = path
         with self._connect() as conn:
             conn.executescript(SCHEMA)
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
+            if "kind" not in columns:  # added with series planning
+                conn.execute("ALTER TABLE jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'episode'")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -82,11 +86,11 @@ class JobStore:
     def _job(self, row) -> Job | None:
         return Job(**{f.name: row[f.name] for f in fields(Job)}) if row else None
 
-    def add(self, job_id: str, topic: str, origin: str = "web") -> Job:
+    def add(self, job_id: str, topic: str, origin: str = "web", kind: str = "episode") -> Job:
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO jobs (id, topic, origin, created_at) VALUES (?, ?, ?, ?)",
-                (job_id, topic, origin, now()),
+                "INSERT INTO jobs (id, topic, origin, created_at, kind) VALUES (?, ?, ?, ?, ?)",
+                (job_id, topic, origin, now(), kind),
             )
         return self.get(job_id)
 
@@ -94,9 +98,14 @@ class JobStore:
         with self._connect() as conn:
             return self._job(conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone())
 
-    def list(self, limit: int = 50) -> list[Job]:
+    def list(self, limit: int = 50, kind: str | None = "episode") -> list[Job]:
+        """Newest first; only episodes by default (``kind=None``: every job, e.g. for the queue)."""
         with self._connect() as conn:
-            rows = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC, id DESC LIMIT ?", (limit,))
+            if kind is None:
+                rows = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC, id DESC LIMIT ?", (limit,))
+            else:
+                rows = conn.execute("SELECT * FROM jobs WHERE kind = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+                                    (kind, limit))
             return [self._job(r) for r in rows]
 
     def update(self, job_id: str, **values) -> None:

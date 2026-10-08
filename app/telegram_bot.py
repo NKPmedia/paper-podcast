@@ -23,7 +23,7 @@ from app.db import Job
 from app.errors import split_error
 from app.tts import TTS_LABELS, resolve_tts
 from app.jobs import JobError, JobService, Worker
-from app.models import EpisodeOptions, EpisodeRequest, Language, Length, ResearchDepth
+from app.models import EpisodeOptions, EpisodeRequest, Language, Length, ResearchDepth, SourceFilter
 from app.feed import TEXT as FEED_TEXT, episode_language
 from app.pipeline import clarify
 from app.pipeline.research import depth_hint
@@ -36,7 +36,10 @@ Keyboard = list[list[Button]]
 
 MAX_AUDIO_BYTES = 49 * 1024 * 1024  # Bot API upload limit is 50 MB
 STAGE_LABELS = {"research": "Recherche", "script": "Skript", "handout": "Handout", "tts": "Sprachausgabe",
-                "audio": "Audio", "memory": "Verknüpfung"}
+                "audio": "Audio", "memory": "Verknüpfung",
+                "series_plan": "Reihenplanung"}
+SOURCE_LABELS = {"all": "alle", "peer_reviewed": "nur peer-reviewed", "top": "nur Top-Konferenzen/-Paper"}
+SOURCE_BUTTONS = {"all": "Alle", "peer_reviewed": "Peer-reviewed", "top": "Top"}
 LENGTH_LABELS = {"kurz": "Kurz (~5 min)", "mittel": "Mittel (~12 min)", "lang": "Lang (~25 min)"}
 LENGTH_BUTTONS = {"kurz": "Kurz · 5 min", "mittel": "Mittel · 12 min", "lang": "Lang · 25 min"}
 DEPTH_LABELS = {"quick": "Schnell", "medium": "Normal", "deep": "Gründlich"}
@@ -95,6 +98,7 @@ class Draft:
     language: str = Language.de.value
     clarify: bool = True
     tts: str = "edge"
+    source_filter: str = "all"
 
 
 @dataclass
@@ -242,6 +246,7 @@ class TelegramBot:
             f"Handout: {'ja (PDF)' if draft.handout else 'nein'}\n"
             f"Sprache: {LANGUAGE_LABELS[draft.language]}\n"
             f"Rückfragen: {'erlaubt, falls das Thema unklar ist' if draft.clarify else 'nein'}\n"
+            f"Quellen: {SOURCE_LABELS[draft.source_filter]}\n"
             f"Stimme: {TTS_LABELS[draft.tts]}"
             + (f" ({TTS_LABELS['gemini' if draft.tts == 'edge' else 'edge']} springt bei Problemen ein)"
                if self.settings.gemini_api_key else "")
@@ -253,6 +258,8 @@ class TelegramBot:
             []
             + [(mark(LANGUAGE_LABELS[v], draft.language == v), f"d:lang:{v}") for v in LANGUAGE_LABELS],
         ]
+        keyboard.insert(3, [(mark("📚 " + label, draft.source_filter == v), f"d:src:{v}")
+                            for v, label in SOURCE_BUTTONS.items()])
         if self.settings.gemini_api_key:  # without a key there is only Edge
             keyboard.append([(mark("🔊 " + label, draft.tts == v), f"d:tts:{v}") for v, label in TTS_LABELS.items()])
         keyboard.append([("▶ Starten", "d:go"), ("✖ Verwerfen", "d:x")])
@@ -288,6 +295,8 @@ class TelegramBot:
             draft.clarify = not draft.clarify
         elif field == "lang" and value in LANGUAGE_LABELS:
             draft.language = value
+        elif field == "src" and value in SOURCE_LABELS:
+            draft.source_filter = value
         elif field == "tts" and value in TTS_LABELS and self.settings.gemini_api_key:
             draft.tts = value
         elif field == "x":
@@ -301,7 +310,8 @@ class TelegramBot:
                 topic=draft.topic,
                 options=EpisodeOptions(length=Length(draft.length), research_depth=ResearchDepth(draft.depth),
                                        handout=draft.handout, language=Language(draft.language),
-                                       clarify=draft.clarify, tts=draft.tts),
+                                       clarify=draft.clarify, tts=draft.tts,
+                                       source_filter=SourceFilter(draft.source_filter)),
             )
             job = self.service.submit(request, origin="telegram")
             # Record the status message before the first await, so the worker's
@@ -336,7 +346,8 @@ class TelegramBot:
             lines.append(f"<i>{esc(job.topic[:200])}</i>")
         if job.status in ("queued", "running"):
             if job.status == "queued":
-                ahead = sum(1 for j in self.store.list(200) if j.status == "queued" and j.created_at < job.created_at)
+                ahead = sum(1 for j in self.store.list(200, kind=None)
+                            if j.status == "queued" and j.created_at < job.created_at)
                 running = self.worker.current_job_id()
                 position = f" (Position {ahead + 1})" if ahead or running else ""
                 lines.append(f"In der Warteschlange{position}")
@@ -391,7 +402,7 @@ class TelegramBot:
     # --- worker events (JobListener) ----------------------------------------------------
 
     async def job_event(self, job: Job, event: str) -> None:
-        if job is None:
+        if job is None or job.kind != "episode":  # series plans are followed on the web page
             return
         meta = self._meta(job.id)
         if (event == "started" and not meta["messages"] and job.origin != "telegram"

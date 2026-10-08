@@ -1,0 +1,65 @@
+You are the editor of a science podcast and plan a **series** of episodes. A deep research of the field has just been done; its notes and the full texts of the key papers are below. Turn it into a sequence of episodes that build on each other.
+
+# What the listener wants
+
+{{ goal }}
+
+# Constraints
+
+- Each episode is about {{ minutes }} minutes of conversation between two people (a curious host and an expert). Size every part so it fits: one clear question per part, not a whole subfield.
+- {% if count %}Plan exactly **{{ count }}** new parts.{% else %}Choose the number of new parts yourself, between {{ min_parts }} and {{ max_parts }}: as many as the field needs for a real understanding, not more.{% endif %}
+- {% if audience == "newcomer" %}The listener is new to the field: start from the foundations.{% else %}The listener follows this podcast and knows its earlier episodes (listed below): build on them instead of repeating them.{% endif %}
+- Every planned episode later gets its own research and script. Its `topic` is all that research starts from, so it must stand on its own and name the core papers, methods or authors.
+{% if existing %}
+# The series so far: "{{ series_title }}"
+{% if series_arc %}
+{{ series_arc }}
+{% endif %}
+These parts already exist and stay as they are; plan only what comes after them:
+
+{% for p in existing %}{{ p.part }}. {{ p.title }}{% if p.summary %}: {{ p.summary }}{% endif %}{% if not p.done %} (not produced yet){% endif %}
+{% endfor %}{% endif %}{% if library %}
+# Earlier episodes of the podcast (not in this series)
+
+{% for e in library %}- {{ e.title }}: {{ e.mini }}
+{% endfor %}
+Do not plan a part that repeats one of these; a part may build on one and say so in its goal.
+{% endif %}
+# How to plan
+
+1. Find the **learning path**: what must be understood first, what builds on what. Foundations before methods, methods before results, the state of the art and open problems towards the end. Prefer a path with a visible thread over a list of topics.
+2. Give every part one **goal** (what the listener understands afterwards) and 3 to 6 points it **covers**. Avoid overlap: if two parts would explain the same concept, explain it once and let the later part build on it (`builds_on`).
+3. Name for every part the **sources** from the research it should rest on. Where the research is thin for a part, you may run a few targeted searches (WebSearch or WebFetch, at most {{ searches }} in total), and look things up in the full texts with Read.
+4. Write the **arc**: where the series starts, where it leads, and why in this order.
+{% if revisions %}
+# Revise the current plan
+
+The listener asked for changes:
+
+{% for r in revisions %}- {{ r }}
+{% endfor %}
+The current plan for the open parts:
+
+{% for ep in current %}{{ existing | length + loop.index }}. {{ ep.title }}: {{ ep.goal }}
+{% endfor %}{% if history %}
+Earlier change requests (already applied; keep them unless the new request says otherwise):
+
+{% for h in history %}- {{ h.instruction }}
+{% endfor %}{% endif %}
+Apply the requested changes and keep what the listener did not ask to change. Return the complete plan for all open parts, and say in `changes` what you changed.
+{% endif %}
+# Research notes
+
+{{ notes }}
+
+# Sources
+
+{% for s in sources %}- {{ s.title }}{% if s.authors %} — {{ s.authors }}{% endif %}{% if s.year %} ({{ s.year }}){% endif %}
+{% endfor %}{% if papers %}
+# Full texts
+
+{% for p in papers %}- `{{ p.file }}`: {{ p.title }} ({{ p.lines }} lines){% if p.note %} – {{ p.note }}{% endif %}
+{% endfor %}{% endif %}
+# Language
+
+Title, arc, rationale, changes and every field of every planned part are in **{{ language_name }}** (paper titles may stay as they are). Part numbers in `builds_on` count the whole series, including the existing parts.

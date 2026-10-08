@@ -22,9 +22,22 @@ Key questions:
 {% endif %}# Candidates (sorted by scout score)
 
 {% for c in candidates %}- **{{ c.id }}**: {{ c.title }}{% if c.authors %} ({{ c.authors }}{% if c.year %}, {{ c.year }}{% endif %}){% elif c.year %} ({{ c.year }}){% endif %}
-  Score {{ c.score }}/10, found by: {{ c.found_by | join(", ") }}. {{ c.reason }}{% if c.quote %}
+  Score {{ c.score }}/10, found by: {{ c.found_by | join(", ") }}.{% if c.venue %} Venue: {{ c.venue }}.{% endif %} Peer-reviewed: {{ c.peer_reviewed }}.{% if c.top_tier %} Top-tier.{% endif %}{% if c.is_review %} Review/survey.{% endif %}{% if c.citations is not none %} {{ c.citations }} citations.{% endif %} {{ c.reason }}{% if c.quote %}
   Quote: "{{ c.quote }}"{% endif %}
 {% endfor %}
+{% if source_filter | default("all") == "peer_reviewed" %}
+# Only peer-reviewed sources
+
+The listener wants only **peer-reviewed** work: papers published in a journal or in conference proceedings (an arXiv version of such a paper is fine). No plain preprints, blogs, news or reports. The server drops every source not marked as peer-reviewed.
+{% elif source_filter | default("all") == "top" %}
+# Only top sources
+
+The listener wants only **top work**: papers at a top venue of the field (main track of e.g. NeurIPS, ICML, ICLR, CVPR, ACL; Nature, Science, PNAS, the field's flagship journals), or top papers by citations. The server drops every source not marked as top-tier.
+{% endif %}{% if research_mode | default("episode") == "overview" %}
+# Overview of a field
+
+This research maps a whole field. **Recent review articles and surveys (since {{ review_since }}) come first**: they give the structure, the main lines of work and the open problems. Then the seminal papers of each line, then the newest state of the art. If no recent review exists, say so and rely on the most cited recent work instead.
+{% endif %}
 # How reading works
 
 The server downloads your sources **in your order**, measures how long each one is, and has them read until a reading budget of about {{ (budget / 1000) | int }}k tokens is used, at most {{ max_papers }} papers. A typical paper is 8k–15k tokens; long ones with appendices reach 35k.
@@ -36,5 +49,6 @@ The server downloads your sources **in your order**, measures how long each one 
 
 - Set the focus of the episode (in English): one clear common thread rather than a grab bag.
 - Rank up to {{ count }} sources that together answer the key questions: the core paper(s), plus context, critique or follow-up work. The scout score is only a hint; pick from further down the list when the content fits. Avoid near-duplicates (e.g. a preprint and its journal version).
-- Prefer sources with a full text (arXiv ID, PDF link or DOI).
+- Prefer sources with a full text (arXiv ID, PDF link or DOI).{% if research_mode | default("episode") == "overview" %}
+- Put the most recent comprehensive review first (it is read completely), then the seminal papers of the main lines of work.{% endif %}
 - Use the IDs exactly as listed. Write each `reason` in English, one sentence.

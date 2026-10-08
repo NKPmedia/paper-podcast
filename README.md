@@ -30,6 +30,39 @@ If the package is private, log in on the server once with a token that has
 `read:packages`. Alternatively, make the package public under GitHub → Packages →
 paper-podcast → Package settings.
 
+### Automatic update in Portainer
+
+After every successful build on the default branch (the one tagged `latest`), the workflow's `deploy` job tells Portainer
+through its API to pull the new `latest` image and redeploy the stack. This works with
+the free Community Edition (stack webhooks would need the Business Edition).
+
+1. In Portainer: **My account → Access tokens → Add access token**, copy the token.
+2. Open the stack; its ID is in the address bar: `…/stacks/<ID>?…`.
+3. In GitHub → repository **Settings → Secrets and variables → Actions**, add the
+   secrets:
+
+   | Secret | Example |
+   |---|---|
+   | `PORTAINER_URL` | `https://portainer.example.org:9443` |
+   | `PORTAINER_API_KEY` | the access token |
+   | `PORTAINER_STACK_ID` | `7` |
+
+   With a self-signed certificate, also add the **variable** (not secret)
+   `PORTAINER_INSECURE` = `true`.
+
+Notes:
+- Portainer must be reachable from GitHub's runners (the internet).
+- The job keeps the stack's file and environment variables as they are in Portainer
+  and only adds "pull image". Stacks from the web editor, an upload or a Git
+  repository all work.
+- If the package is private, add the GHCR login under Portainer → **Registries**, so it
+  can pull the image.
+- Without the secrets the job is skipped with a notice; other branches and pull
+  requests never deploy. Wrong token, unknown stack ID or an unreachable Portainer
+  fail the job with a clear message.
+- Data lives in the `paper-podcast-data` volume and survives the redeploy. A running
+  episode is interrupted and resumes from its last finished step after the restart.
+
 ## Quick start (Docker, build locally)
 
 ```bash

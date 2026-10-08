@@ -22,6 +22,19 @@ Before the research, the listener answered these questions. Follow them; they de
 
 {% for q in plan.key_questions %}- {{ q }}
 {% endfor %}{% endif %}
+{% if source_filter | default("all") == "peer_reviewed" %}
+# Only peer-reviewed sources
+
+The listener wants only **peer-reviewed** work: papers published in a journal or in conference proceedings (an arXiv version of such a paper is fine). No plain preprints, blogs, news or reports. The server drops every source not marked as peer-reviewed.
+{% elif source_filter | default("all") == "top" %}
+# Only top sources
+
+The listener wants only **top work**: papers at a top venue of the field (main track of e.g. NeurIPS, ICML, ICLR, CVPR, ACL; Nature, Science, PNAS, the field's flagship journals), or top papers by citations. The server drops every source not marked as top-tier.
+{% endif %}{% if research_mode | default("episode") == "overview" %}
+# Overview of a field
+
+This research maps a whole field. **Recent review articles and surveys (since {{ review_since }}) come first**: they give the structure, the main lines of work and the open problems. Then the seminal papers of each line, then the newest state of the art. If no recent review exists, say so and rely on the most cited recent work instead.
+{% endif %}
 # Sources to read
 
 The server split every downloaded paper into its main text (one file) and its appendix (a separate file, if any), removed the reference lists, measured the main texts and set the reading depth so that everything fits into your context. The goal is always the complete main text; anything you do not get is stated under "Coverage" and at the top of the file.
@@ -46,7 +59,7 @@ The server split every downloaded paper into its main text (one file) and its ap
    - **selective**: read the abstract, introduction, method overview, main results and conclusion; open other sections only when they answer a key question directly.
    - **Appendix files**: open them only for a specific detail (a proof, a hyperparameter, an extra result), with `offset`/`limit`.
 3. **Cross-check** the sources: where do they agree, where do they contradict each other? Resolve contradictions, or record them as open.
-4. **Fill gaps.** For every key question the papers do not answer well, run targeted searches (WebSearch or WebFetch, **at most {{ searches }}**), e.g. for current reception, critique or applications.
+4. **Fill gaps.** For every key question the papers do not answer well, run targeted searches (WebSearch or WebFetch, **at most {{ searches }}**), e.g. for current reception, critique or applications.{% if source_filter | default("all") != "all" %} The restriction on sources above applies to these too: cite only sources that meet it.{% endif %}{% if research_mode | default("episode") == "overview" %} In the notes, describe the structure of the field (main lines of work, how they relate, what is settled and what is open), as the reviews present it.{% endif %}
 5. **Say what you did not read.** In the notes, mark every source that you read only selectively or whose main text was cut, e.g. "(read selectively)" or "(main text cut; conclusion missing)", so the script writer does not assume more than you saw.
 6. **Cite with location.** The script will be written later by another model that reads your notes and looks things up in the full texts when needed. Back every concrete claim, number and example with a source tag **and** its location in the full text, i.e. file and line range as the Read tool shows it: `[Gu 2023, papers/arxiv_2312.00752.md:210-245]`. For sources without a full-text file, the tag and URL are enough.
 7. Return:

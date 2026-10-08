@@ -220,3 +220,21 @@ form.questions legend { font-weight: 600; padding: 0 4px; }
 form.questions label.check { display: flex; align-items: baseline; margin: 6px 0; }
 dl.answers dt { font-weight: 600; margin-top: 8px; }
 dl.answers dd { margin: 2px 0 0 0; color: var(--muted); }
+.series-parts li.planned { margin-bottom: 12px; }
+.series-parts li.planned .actions { margin-top: 6px; }
+.plan-status { margin: 8px 0; }
+form.revise { margin-top: 12px; }
+.graph-scroll { overflow-x: auto; margin: 8px 0; }
+.series-graph { display: block; margin: 0 auto; max-width: none; font: 13px/1.2 system-ui, sans-serif; }
+.series-graph .edge { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+.series-graph .arrow { fill: var(--muted); }
+.series-graph .node rect { fill: var(--card); stroke: var(--border); stroke-width: 1.5; }
+.series-graph .node text { fill: var(--text); }
+.series-graph .node.done rect { stroke: var(--ok); stroke-width: 2; }
+.series-graph .node.created rect { stroke: var(--accent); stroke-width: 2; }
+.series-graph .node.planned rect { stroke-dasharray: 5 4; }
+.series-graph a:hover rect, .series-graph a:focus rect { fill: var(--code-bg); }
+.legend { display: inline-block; padding: 0 6px; margin-left: 4px; border: 2px solid var(--border); border-radius: 6px; }
+.legend.done { border-color: var(--ok); }
+.legend.created { border-color: var(--accent); }
+.legend.planned { border-style: dashed; }

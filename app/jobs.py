@@ -19,8 +19,12 @@ from app.db import Job, JobStore, now
 from app.models import EpisodeRequest
 from app.errors import NeedsInput, format_error
 from app.pipeline import (
-    STAGE_NAMES, EpisodeContext, EpisodeLog, clarify, create_job, current_title, load_context, run_pipeline,
+    PLAN_STAGE_NAMES, STAGE_NAMES, EpisodeContext, EpisodeLog, clarify, create_job, current_title, load_context,
+    run_pipeline,
 )
+from app.pipeline import series_plan
+from app.models import EpisodeOptions, Language, Length, ResearchDepth, SourceFilter
+from app.series import SeriesStore
 from app.prompts import PromptStore
 
 log = logging.getLogger(__name__)
@@ -78,10 +82,47 @@ class JobService:
         job = self._get(job_id)
         if job.active:
             raise JobError("Job läuft bereits")
-        if from_stage is not None and from_stage not in STAGE_NAMES:
+        names = PLAN_STAGE_NAMES if job.kind == "series_plan" else STAGE_NAMES
+        if from_stage is not None and from_stage not in names:
             raise JobError(f"Unbekannte Stufe: {from_stage}")
         self.store.update(job_id, status="queued", error="", message="", from_stage=from_stage, finished_at=None)
         self._wake()
+
+    def plan_series(self, series_id: str, goal: str, count: int, episode_options: dict, origin: str = "web") -> Job:
+        """Start a planning job: deep research of the goal, then a plan for the series."""
+        goal = goal.strip()
+        if not goal:
+            raise JobError("Bitte beschreiben, worum es in der Reihe gehen soll.")
+        request = EpisodeRequest(topic=goal, options=EpisodeOptions(
+            research_depth=ResearchDepth.deep, clarify=False, research_mode="overview",
+            source_filter=SourceFilter(episode_options.get("source_filter", "all")),
+            length=Length(episode_options.get("length", "mittel")),
+            language=Language(episode_options.get("language", "de")),
+            extra_instructions=series_plan.RESEARCH_HINT,
+        ))
+        job_dir = create_job(self.settings, request, self.prompts)
+        series_plan.save_request(job_dir, {"series_id": series_id, "count": count, "episode_options": episode_options,
+                                           "revisions": []})
+        job = self.store.add(job_dir.name, goal, origin, kind="series_plan")
+        SeriesStore(self.settings.series_path, self.settings.episodes_dir).set_plan_job(series_id, job.id)
+        self._wake()
+        return job
+
+    def revise_series_plan(self, job_id: str, instruction: str) -> None:
+        """Change an existing plan with the listener's own words; the research is reused."""
+        instruction = " ".join(instruction.split())[:3000]
+        if not instruction:
+            raise JobError("Bitte beschreiben, was an der Planung geändert werden soll.")
+        job = self._get(job_id)
+        if job.active:
+            raise JobError("Die Planung läuft gerade – bitte warten, bis sie fertig ist.")
+        job_dir = self.job_dir(job_id)
+        request = series_plan.load_request(job_dir)
+        request["revisions"].append({"instruction": instruction, "at": now(), "applied": False})
+        series_plan.save_request(job_dir, request)
+        # Without a finished research the whole planning resumes; otherwise only the plan is redone.
+        done = (job_dir / "research.md").exists() and (job_dir / series_plan.RESULT_FILE).exists()
+        self.retry(job_id, "series_plan" if done else None)
 
     def answer(self, job_id: str, answers: list[str]) -> None:
         """Store the answers to the clarifying questions and queue the job again."""
@@ -185,7 +226,7 @@ class Worker:
         try:
             ctx = self.context_factory(job_dir)
             ctx.on_title = set_title
-            task = asyncio.create_task(run_pipeline(ctx, progress=progress, from_stage=job.from_stage))
+            task = asyncio.create_task(run_pipeline(ctx, progress=progress, from_stage=job.from_stage, kind=job.kind))
             self._current = (job.id, task)
             await task
         except asyncio.CancelledError:
@@ -223,6 +264,12 @@ class Worker:
         finally:
             self._current = None
 
+        if job.kind == "series_plan":
+            plan = json.loads((job_dir / series_plan.RESULT_FILE).read_text(encoding="utf-8"))
+            self.store.update(job.id, status="done", stage="", message="Reihe geplant", from_stage=None,
+                              title=plan["title"], finished_at=now(), cost_usd=episode_cost(job_dir))
+            await self._emit(job.id, "done")
+            return
         episode = json.loads((job_dir / "episode.json").read_text(encoding="utf-8"))
         self.store.update(
             job.id, status="done", stage="", message="Fertig", from_stage=None,

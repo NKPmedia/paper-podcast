@@ -6,9 +6,10 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from app.errors import STEP_NAMES
+
 TOKEN_FIELDS = ("input", "output", "cache_read", "cache_write")
-STAGE_LABELS = {"research": "Recherche", "script": "Skript", "handout": "Handout", "tts": "Sprachausgabe",
-                "audio": "Audio"}
+STAGE_LABELS = STEP_NAMES
 
 
 def read_log(job_dir: Path) -> list[dict]:
@@ -119,6 +120,17 @@ def _describe(entry: dict) -> tuple[str, str, str]:
         detail = "\n".join(f"{p.get('title', '')[:70]} · {fmt_tokens(p.get('tokens'))} Tokens · {p.get('reason', '')}"
                            for p in papers)
         return "info", text, detail
+    if event == "source_filter":
+        label = {"peer_reviewed": "peer-reviewed", "top": "Top-Quellen"}.get(entry.get("filter"), entry.get("filter"))
+        removed = entry.get("removed") or []
+        return ("warn" if removed else "info",
+                f"Quellen eingeschränkt auf {label}: {entry.get('kept', 0)} bleiben, {len(removed)} aussortiert",
+                "\n".join(removed))
+    if event == "series_plan":
+        text = (f"Reihe {'überarbeitet' if entry.get('revision') else 'geplant'}: „{entry.get('title', '')}“ mit "
+                f"{entry.get('parts', 0)} geplanten Teil(en)"
+                + (f" nach {entry['existing']} bestehenden" if entry.get("existing") else ""))
+        return "done", text, ""
     if event == "scout_retry":
         return ("warn", f"Scout {entry.get('angle', '')} abgebrochen – neuer Versuch, sobald ein anderer Scout fertig "
                 f"ist (ab jetzt höchstens {entry.get('parallel', 1)} gleichzeitig)", entry.get("error", ""))
