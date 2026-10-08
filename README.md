@@ -15,7 +15,7 @@ and pushes it to the GitHub Container Registry
 
 | Tag | When |
 |---|---|
-| `ghcr.io/nkpmedia/paper-podcast:latest` | Default branch |
+| `ghcr.io/nkpmedia/paper-podcast:latest` | `main` |
 | `:<branch>` | Every other branch |
 | `:sha-<commit>` | Every build |
 | `:1.2.3` / `:1.2` | Git tags like `v1.2.3` |
@@ -32,7 +32,7 @@ paper-podcast → Package settings.
 
 ### Automatic update in Portainer
 
-After every successful build on the default branch (the one tagged `latest`), the workflow's `deploy` job tells Portainer
+After every successful build on `main` (the branch tagged `latest`), the workflow's `deploy` job tells Portainer
 through its API to pull the new `latest` image and redeploy the stack. This works with
 the free Community Edition (stack webhooks would need the Business Edition).
 
